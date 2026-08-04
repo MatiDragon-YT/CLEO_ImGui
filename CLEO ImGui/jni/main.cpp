@@ -14,7 +14,7 @@ cleo_ifs_t* cleo = nullptr;
 #include "cleoaddon.h"
 cleo_addon_ifs_t* cleoaddon = nullptr;
 
-MYMOD(net.matidragon.cleo_imgui, CLEO_ImGui, 1.0.1, MatiDragon)
+MYMOD(net.matidragon.cleo_imgui, CLEO_ImGui, 1.1.0, MatiDragon)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY_VER(net.rusjj.cleolib, 2.0.1.10)
 END_DEPLIST()
@@ -32,12 +32,24 @@ END_DEPLIST()
 #define READ_FLOATPTR(name) float* name = &cleo->GetPointerToScriptVar(handle)->f
 #define SET_INT(val) cleo->GetPointerToScriptVar(handle)->i = val
 #define SET_FLOAT(val) cleo->GetPointerToScriptVar(handle)->f = val
-#define RET_OP(ret) cleoaddon->UpdateCompareFlag(handle, ret);
+#define RET_COMPARE(ret) cleoaddon->UpdateCompareFlag(handle, ret);
 
 // ── Macros para widgets con/sin cola ──────────────────────
 #define QUEUE_PUSH(body) g_drawQueue.push_back([=]() body)
 #define SIMPLE_WIDGET(body) CLEO_Fn(body) { g_drawQueue.push_back([]() { body; }); }
 #define DIRECT_GETTER(body) CLEO_Fn(body)
+
+// Consume el primer bool pendiente del script 'handle' y actualiza la bandera de condición.
+// Úsala al inicio de cada opcode condicional que use el sistema de cola.
+#define APPLY_DEFERRED_COND()                          \
+    auto& _pending_ = g_pendingResults[handle];        \
+    bool _ret_ = false;                                \
+    if (!_pending_.empty()) {                          \
+        _ret_ = _pending_.front();                     \
+        _pending_.erase(_pending_.begin());            \
+    }                                                  \
+    RET_COMPARE(_ret_)
+#define PUSH_DEFERRED_BOOL(expr)  g_pendingResults[handle].push_back(expr)
 
 
 static IM imgui;
@@ -87,6 +99,8 @@ void ImGui_ImplRenderWare_ShutDown();
 
 // ── Cola de dibujado para CLEO ──────────────────────
 static std::vector<std::function<void()>> g_drawQueue;
+// Cola de resultados por script (para condiciones con retardo)
+static std::map<void*, std::vector<bool>> g_pendingResults;
 
 #define FRAMES_TO_CLEAR_MOUSE 3
 static char nClearMousePos = 0;
@@ -260,11 +274,14 @@ CLEO_Fn(IMGUI_CHECKBOX)
     READ_INT(flags);
     READ_INTPTR(pVar);
 
+    APPLY_DEFERRED_COND();
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, flags, pVar]() {
+    g_drawQueue.push_back([lbl, flags, pVar, handle]() {
         bool val = (*pVar != 0);
-        if (ImGui::Checkbox(lbl.c_str(), &val))
-            *pVar = val ? 1 : 0;
+        bool changed = ImGui::Checkbox(lbl.c_str(), &val);
+        *pVar = val ? 1 : 0;
+        PUSH_DEFERRED_BOOL(changed);
     });
 }
 
@@ -275,9 +292,12 @@ CLEO_Fn(IMGUI_BUTTON)
     READ_FLOAT(w);
     READ_FLOAT(h);
 
+    APPLY_DEFERRED_COND();   // ← sustituye las 7 líneas anteriores
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, w, h]() {
-        ImGui::Button(lbl.c_str(), ImVec2(w, h));
+    g_drawQueue.push_back([lbl, w, h, handle]() {
+        bool pressed = ImGui::Button(lbl.c_str(), ImVec2(w, h));
+        PUSH_DEFERRED_BOOL(pressed);
     });
 }
 
@@ -372,9 +392,12 @@ CLEO_Fn(IMGUI_SLIDER_INT)
     READ_INT(slFlags);
     READ_INT(count);
 
+    APPLY_DEFERRED_COND();
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, pVar, minVal, maxVal, slFlags]() {
-        ImGui::SliderInt(lbl.c_str(), pVar, minVal, maxVal, "%d", slFlags);
+    g_drawQueue.push_back([lbl, pVar, minVal, maxVal, slFlags, handle]() {
+        bool changed = ImGui::SliderInt(lbl.c_str(), pVar, minVal, maxVal, "%d", slFlags);
+        PUSH_DEFERRED_BOOL(changed);
     });
 }
 
@@ -389,9 +412,12 @@ CLEO_Fn(IMGUI_SLIDER_FLOAT)
     READ_INT(slFlags);
     READ_INT(count);
 
+    APPLY_DEFERRED_COND();
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, pVar, minVal, maxVal, slFlags]() {
-        ImGui::SliderFloat(lbl.c_str(), pVar, minVal, maxVal, "%.3f", slFlags);
+    g_drawQueue.push_back([lbl, pVar, minVal, maxVal, slFlags, handle]() {
+        bool changed = ImGui::SliderFloat(lbl.c_str(), pVar, minVal, maxVal, "%.3f", slFlags);
+        PUSH_DEFERRED_BOOL(changed);
     });
 }
 
@@ -404,13 +430,18 @@ CLEO_Fn(IMGUI_COLOR_EDIT)
     READ_INT(editFlags);
     READ_INT(alphaFlag);
 
+    APPLY_DEFERRED_COND();
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, pCol, editFlags, alphaFlag]() {
-        // alphaFlag indica si se usa ColorEdit4 o ColorEdit3
+    g_drawQueue.push_back([lbl, pCol, editFlags, alphaFlag, handle]() {
+        bool changed = false;
+
         if (alphaFlag)
-            ImGui::ColorEdit4(lbl.c_str(), pCol, editFlags);
+            changed = ImGui::ColorEdit4(lbl.c_str(), pCol, editFlags);
         else
-            ImGui::ColorEdit3(lbl.c_str(), pCol, editFlags);
+            changed = ImGui::ColorEdit3(lbl.c_str(), pCol, editFlags);
+        
+        PUSH_DEFERRED_BOOL(changed);
     });
 }
 
@@ -424,11 +455,15 @@ CLEO_Fn(IMGUI_COLOR_PICKER)
     READ_INT(alphaFlag);
 
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, pCol, pickFlags, alphaFlag]() {
+    g_drawQueue.push_back([lbl, pCol, pickFlags, alphaFlag, handle]() {
+        bool changed = false;
+
         if (alphaFlag)
-            ImGui::ColorPicker4(lbl.c_str(), pCol, pickFlags);
+            changed = ImGui::ColorPicker4(lbl.c_str(), pCol, pickFlags);
         else
-            ImGui::ColorPicker3(lbl.c_str(), pCol, pickFlags);
+            changed = ImGui::ColorPicker3(lbl.c_str(), pCol, pickFlags);
+        
+        PUSH_DEFERRED_BOOL(changed);
     });
 }
 
@@ -462,9 +497,12 @@ CLEO_Fn(IMGUI_INPUT_INT)
     READ_INT(inputFlags);
     READ_INT(count);
 
+    APPLY_DEFERRED_COND();
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, pVar, inputFlags]() {
-        ImGui::InputInt(lbl.c_str(), pVar, 1, 100, inputFlags);
+    g_drawQueue.push_back([lbl, pVar, inputFlags, handle]() {
+        bool changed = ImGui::InputInt(lbl.c_str(), pVar, 1, 100, inputFlags);
+        PUSH_DEFERRED_BOOL(changed);
     });
 }
 
@@ -476,10 +514,13 @@ CLEO_Fn(IMGUI_INPUT_FLOAT)
     READ_FLOAT_PTR(pVar);
     READ_INT(inputFlags);
     READ_INT(count);
+    
+    APPLY_DEFERRED_COND();
 
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, pVar, inputFlags]() {
-        ImGui::InputFloat(lbl.c_str(), pVar, 0.0f, 0.0f, "%.3f", inputFlags);
+    g_drawQueue.push_back([lbl, pVar, inputFlags, handle]() {
+        bool changed = ImGui::InputFloat(lbl.c_str(), pVar, 0.0f, 0.0f, "%.3f", inputFlags);
+        PUSH_DEFERRED_BOOL(changed);
     });
 }
 
@@ -492,7 +533,7 @@ CLEO_Fn(IMGUI_SEPARATOR)
 // 0F26: imgui_get_cleo_imgui_version  (directo, sin cola)
 CLEO_Fn(IMGUI_GET_CLEO_IMGUI_VERSION)
 {
-    cleoaddon->WriteString(handle, "1.0.1");
+    cleoaddon->WriteString(handle, "1.1.0");
 }
 
 // 0F27: imgui_get_version  (directo)
@@ -578,7 +619,7 @@ CLEO_Fn(IMGUI_IS_ITEM_HOVERED)
     
     bool ret = ImGui::IsItemHovered(flags);
     
-    RET_OP(ret);
+    RET_COMPARE(ret);
 }
 
 // 0F30: imgui_is_item_focused
@@ -588,7 +629,7 @@ CLEO_Fn(IMGUI_IS_ITEM_FOCUSED)
     
     bool ret = ImGui::IsItemFocused();
     
-    RET_OP(ret);
+    RET_COMPARE(ret);
 }
 
 // 0F31: imgui_is_item_activated
@@ -598,7 +639,7 @@ CLEO_Fn(IMGUI_IS_ITEM_ACTIVATED)
     
     bool ret = ImGui::IsItemActivated();
     
-    RET_OP(ret);
+    RET_COMPARE(ret);
 }
 
 // 0F32: imgui_is_item_deactivated
@@ -608,7 +649,7 @@ CLEO_Fn(IMGUI_IS_ITEM_DEACTIVATED)
     
     bool ret = ImGui::IsItemDeactivated();
     
-    RET_OP(ret);
+    RET_COMPARE(ret);
 }
 
 // 0F33: imgui_is_item_active
@@ -618,7 +659,7 @@ CLEO_Fn(IMGUI_IS_ITEM_ACTIVE)
     
     bool ret = ImGui::IsItemActive();
     
-    RET_OP(ret);
+    RET_COMPARE(ret);
 }
 
 // 0F34: imgui_is_item_clicked
@@ -629,7 +670,7 @@ CLEO_Fn(IMGUI_IS_ITEM_CLICKED)
     
     bool ret = ImGui::IsItemClicked(btn);
     
-    RET_OP(ret);
+    RET_COMPARE(ret);
 }
 
 // 0F35: imgui_is_window_hovered
@@ -637,6 +678,10 @@ CLEO_Fn(IMGUI_IS_WINDOW_HOVERED)
 {
     READ_INT(id);
     READ_INT(flags);
+    
+    bool ret = ImGui::IsWindowHovered(flags);
+    
+    RET_COMPARE(ret);
 }
 
 // 0F36: imgui_is_window_focused
@@ -644,6 +689,10 @@ CLEO_Fn(IMGUI_IS_WINDOW_FOCUSED)
 {
     READ_INT(id);
     READ_INT(flags);
+    
+    bool ret = ImGui::IsWindowFocused(flags);
+    
+    RET_COMPARE(ret);
 }
 
 // 0F37: imgui_radio_button
@@ -654,9 +703,12 @@ CLEO_Fn(IMGUI_RADIO_BUTTON)
     READ_INT_PTR(pVar);
     READ_INT(value);
 
+    APPLY_DEFERRED_COND();
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, pVar, value]() {
-        ImGui::RadioButton(lbl.c_str(), pVar, value);
+    g_drawQueue.push_back([lbl, pVar, value, handle]() {
+        bool changed = ImGui::RadioButton(lbl.c_str(), pVar, value);
+        PUSH_DEFERRED_BOOL(changed);
     });
 }
 
@@ -666,9 +718,12 @@ CLEO_Fn(IMGUI_COLLAPSING_HEADER)
     READ_STRING(label, 128);
     READ_INT(flags);
 
+    APPLY_DEFERRED_COND();
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, flags]() {
-        ImGui::CollapsingHeader(lbl.c_str(), flags);
+    g_drawQueue.push_back([lbl, flags, handle]() {
+        bool changed = ImGui::CollapsingHeader(lbl.c_str(), flags);
+        PUSH_DEFERRED_BOOL(changed);
     });
 }
 
@@ -690,28 +745,28 @@ CLEO_Fn(IMGUI_PROGRESS_BAR)
 CLEO_Fn(IMGUI_GET_WINDOW_POSY)
 {
     READ_INT(flags);
-    cleo->GetPointerToScriptVar(handle)->f = ImGui::GetWindowPos().y;
+    WRITE_FLOAT(ImGui::GetWindowPos().y);
 }
 
 // 0F3B: imgui_get_window_posx
 CLEO_Fn(IMGUI_GET_WINDOW_POSX)
 {
     READ_INT(flags);
-    cleo->GetPointerToScriptVar(handle)->f = ImGui::GetWindowPos().x;
+    WRITE_FLOAT(ImGui::GetWindowPos().x);
 }
 
 // 0F3C: imgui_get_window_width
 CLEO_Fn(IMGUI_GET_WINDOW_WIDTH)
 {
     READ_INT(flags);
-    cleo->GetPointerToScriptVar(handle)->f = ImGui::GetWindowWidth();
+    WRITE_FLOAT(ImGui::GetWindowWidth());
 }
 
 // 0F3D: imgui_get_window_height
 CLEO_Fn(IMGUI_GET_WINDOW_HEIGHT)
 {
     READ_INT(flags);
-    cleo->GetPointerToScriptVar(handle)->f = ImGui::GetWindowHeight();
+    WRITE_FLOAT(ImGui::GetWindowHeight());
 }
 
 // 0F3E: imgui_selectable
@@ -723,40 +778,16 @@ CLEO_Fn(IMGUI_SELECTABLE)
     READ_FLOAT(w);
     READ_FLOAT(h);
 
+    APPLY_DEFERRED_COND();
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, pSelected, flags, w, h]() {
+    g_drawQueue.push_back([lbl, pSelected, flags, w, h, handle]() {
         bool sel = (*pSelected != 0);
-        if (ImGui::Selectable(lbl.c_str(), &sel, flags, ImVec2(w, h)))
-            *pSelected = sel ? 1 : 0;
+        bool activated = ImGui::Selectable(lbl.c_str(), &sel, flags, ImVec2(w, h));
+        *pSelected = sel ? 1 : 0;
+
+        PUSH_DEFERRED_BOOL(activated);  // encolar el resultado
     });
-}
-
-// 0F40: imgui_load_texture  (no implementado, se necesitaría backend de texturas)
-CLEO_Fn(IMGUI_LOAD_TEXTURE)
-{
-    // stub
-    cleo->GetPointerToScriptVar(handle)->i = 0;
-}
-
-// 0F41: imgui_image  (requiere textura, inviable con cola sin backend)
-CLEO_Fn(IMGUI_IMAGE)
-{
-    // stub
-}
-
-// 0F42: imgui_image_ex  (stub)
-CLEO_Fn(IMGUI_IMAGE_EX)
-{
-}
-
-// 0F43: imgui_image_button  (stub)
-CLEO_Fn(IMGUI_IMAGE_BUTTON)
-{
-}
-
-// 0F44: imgui_image_button_ex  (stub)
-CLEO_Fn(IMGUI_IMAGE_BUTTON_EX)
-{
 }
 
 // 0F46: imgui_invisible_button
@@ -767,9 +798,12 @@ CLEO_Fn(IMGUI_INVISIBLE_BUTTON)
     READ_FLOAT(h);
     READ_INT(flags);
 
+    APPLY_DEFERRED_COND();
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl, w, h, flags]() {
-        ImGui::InvisibleButton(lbl.c_str(), ImVec2(w, h), flags);
+    g_drawQueue.push_back([lbl, w, h, flags, handle]() {
+        bool clicked = ImGui::InvisibleButton(lbl.c_str(), ImVec2(w, h), flags);
+        PUSH_DEFERRED_BOOL(clicked);
     });
 }
 
@@ -916,8 +950,14 @@ CLEO_Fn(IMGUI_END_MAIN_MENU_BAR)
 CLEO_Fn(IMGUI_MENU_ITEM)
 {
     READ_STRING(label, 128);
+
+    APPLY_DEFERRED_COND();
+
     std::string lbl = label;
-    g_drawQueue.push_back([lbl]() { ImGui::MenuItem(lbl.c_str()); });
+    g_drawQueue.push_back([lbl, handle]() {
+        bool activated = ImGui::MenuItem(lbl.c_str());
+        PUSH_DEFERRED_BOOL(activated);
+    });
 }
 
 // 0F52-0F55: estilos (directo, sin cola)
@@ -931,7 +971,7 @@ CLEO_Fn(IMGUI_GET_STYLE)
 {
     READ_INT(off);
     // Los offsets están definidos en ImGuiStyleVar, mapearlos es complejo; stub.
-    cleo->GetPointerToScriptVar(handle)->f = 0.0f;
+    WRITE_FLOAT(0.0f);
 }
 
 // 0F58: imgui_set_style  (directo)
@@ -947,6 +987,7 @@ CLEO_Fn(IMGUI_SET_STYLE_INT)
 {
     READ_INT(off);
     READ_INT(val);
+    // stub
 }
 
 // 0F5A: imgui_get_color
@@ -1003,28 +1044,28 @@ CLEO_Fn(IMGUI_POP_ITEM_FLAG)
 CLEO_Fn(IMGUI_GET_WINDOW_CONTENT_REGION_WIDTH)
 {
     READ_INT(flags);
-    cleo->GetPointerToScriptVar(handle)->f;//= ImGui::GetWindowContentRegionWidth();
+    WRITE_FLOAT(0.0f); //= ImGui::GetWindowContentRegionWidth();
 }
 
 // 0F61: imgui_get_frame_height
 CLEO_Fn(IMGUI_GET_FRAME_HEIGHT)
 {
     READ_INT(flags);
-    cleo->GetPointerToScriptVar(handle)->f = ImGui::GetFrameHeight();
+    WRITE_FLOAT(ImGui::GetFrameHeight());
 }
 
 // 0F62: imgui_get_frame_height_with_spacing
 CLEO_Fn(IMGUI_GET_FRAME_HEIGHT_WITH_SPACING)
 {
     READ_INT(flags);
-    cleo->GetPointerToScriptVar(handle)->f = ImGui::GetFrameHeightWithSpacing();
+    WRITE_FLOAT(ImGui::GetFrameHeightWithSpacing());
 }
 
 // 0F63: imgui_get_style_int  (directo)
 CLEO_Fn(IMGUI_GET_STYLE_INT)
 {
     READ_INT(off);
-    cleo->GetPointerToScriptVar(handle)->i = 0;
+    WRITE_INT(0);
 }
 
 // ---------- Entradas del módulo ----------
@@ -1111,11 +1152,6 @@ extern "C" void OnModLoad()
     CLEO_RegisterOpcode(0x0F3C, IMGUI_GET_WINDOW_WIDTH);
     CLEO_RegisterOpcode(0x0F3D, IMGUI_GET_WINDOW_HEIGHT);
     CLEO_RegisterOpcode(0x0F3E, IMGUI_SELECTABLE);
-    CLEO_RegisterOpcode(0x0F40, IMGUI_LOAD_TEXTURE);
-    CLEO_RegisterOpcode(0x0F41, IMGUI_IMAGE);
-    CLEO_RegisterOpcode(0x0F42, IMGUI_IMAGE_EX);
-    CLEO_RegisterOpcode(0x0F43, IMGUI_IMAGE_BUTTON);
-    CLEO_RegisterOpcode(0x0F44, IMGUI_IMAGE_BUTTON_EX);
     CLEO_RegisterOpcode(0x0F46, IMGUI_INVISIBLE_BUTTON);
     CLEO_RegisterOpcode(0x0F47, IMGUI_DRAWLIST_ADD_CIRCLE);
     CLEO_RegisterOpcode(0x0F48, IMGUI_DRAWLIST_ADD_CIRCLE_FILLED);

@@ -1,21 +1,12 @@
-# CLEO ImGui
+# CLEO ImGui v1.0.1
 Project inspired by [CLEO ImGui](https://github.com/user-grinch/CLEOImGui) by User-Grinch, respecting the order of its opcodes.
 
 Created by: Matias A. Rossi (MatiDragon)
 
-
 ![front page](17856073058932.webp)
 
-## Change Log
+<h2>OPCODES</h2>
 
-### CLEO ImGui v1.0.1
-
-fixes
-IMGUI_COLOR_TOOLTIP
-IMGUI_GET_CLEO_IMGUI_VERSION
-IMGUI_GET_VERSION
-
-### CLEO ImGui v1.0.0
 ```ini
 0F01=4,imgui_begin label %1d% shown (bool) %2d% flags (int) %3d% mouse visible (int) %4d% 
 0F02=0,imgui_end 
@@ -59,14 +50,14 @@ IMGUI_GET_VERSION
 0F2C=0,imgui_newline 
 0F2D=1,imgui_set_tooltip label %1d% 
 0F2E=6,imgui_color_tooltip label %1d% red (float) %2d% green (float) %3d% blue (float) %4d% alpha (float) %5d% imguicoloreditflags %6d% 
-#0F2F=2,imgui_is_item_hovered indentifier %1d% imguihoveredflags %2d% 
-#0F30=1,imgui_is_item_focused indentifier %1d% 
-#0F31=1,imgui_is_item_activated indentifier %1d% 
-#0F32=1,imgui_is_item_deactivated indentifier %1d% 
-#0F33=1,imgui_is_item_active indentifier %1d% 
-#0F34=2,imgui_is_item_clicked indentifier %1d% imguimousebutton %2d% 
-#0F35=2,imgui_is_window_hovered indentifier %1d% imguihoveredflags %2d% 
-#0F36=2,imgui_is_window_focused indentifier %1d% imguihoveredflags %2d% 
+0F2F=2,imgui_is_item_hovered indentifier %1d% imguihoveredflags %2d% 
+0F30=1,imgui_is_item_focused indentifier %1d% 
+0F31=1,imgui_is_item_activated indentifier %1d% 
+0F32=1,imgui_is_item_deactivated indentifier %1d% 
+0F33=1,imgui_is_item_active indentifier %1d% 
+0F34=2,imgui_is_item_clicked indentifier %1d% imguimousebutton %2d% 
+0F35=2,imgui_is_window_hovered indentifier %1d% imguihoveredflags %2d% 
+0F36=2,imgui_is_window_focused indentifier %1d% imguihoveredflags %2d% 
 0F37=4,imgui_radio_button label %1d% imguitypeflags %2d% pointer/var (int) %3d% number (int) %4d% 
 0F38=2,imgui_collasping_header label %1d% imguitreenodeflags %2d% 
 0F39=4,imgui_progress_bar label %1d% fraction (float) %2d% width (float) %3d% height (float) %4d% 
@@ -111,3 +102,116 @@ IMGUI_GET_VERSION
 0F62=1,imgui_get_frame_height_with_spacing var (float) %1d% 
 0F63=2,imgui_get_style_int imguistyleoffsets %1d% var (int) %2d% 
 ```
+
+
+<h2>CHANGE LOG</h2>
+
+### CLEO ImGui v1.1.0
+
+Opcodes agregados:
+* IMGUI_IS_ITEM_HOVERED
+* IMGUI_IS_ITEM_FOCUSED
+* IMGUI_IS_ITEM_ACTIVATED
+* IMGUI_IS_ITEM_DEACTIVATED
+* IMGUI_IS_ITEM_ACTIVE
+* IMGUI_IS_ITEM_CLICKED
+* IMGUI_IS_WINDOW_HOVERED
+* IMGUI_IS_WINDOW_FOCUSED
+
+### CLEO ImGui v1.0.1
+
+Condicionales arregladas:
+* IMGUI_CHECKBOX (TRUE, si esta marcado)
+* IMGUI_BUTTON (TRUE, si se preciona)
+* IMGUI_SLIDER_INT (TRUE, si se preciona)
+* IMGUI_SLIDER_FLOAT (TRUE, si se preciona)
+* IMGUI_COLOR_EDIT (TRUE, si se preciona)
+* IMGUI_COLOR_PICKER (TRUE, si se preciona)
+* IMGUI_INPUT_INT (TRUE, si esta en foco)
+* IMGUI_INPUT_FLOAT (TRUE, si esta en foco)
+* IMGUI_MENU_ITEM 
+* IMGUI_RADIO_BUTTON (TRUE, si esta marcado)
+* IMGUI_COLLAPSING_HEADER
+* IMGUI_SELECTABLE
+* IMGUI_INVISIBLE_BUTTON (TRUE, si se preciona)
+* IMGUI_MENU_ITEM
+
+Funciones arregladas:
+* IMGUI_COLOR_TOOLTIP (COLOR)
+
+Retornos arreglados:
+* IMGUI_GET_CLEO_IMGUI_VERSION (STRING)
+* IMGUI_GET_VERSION (STRING)
+
+### CLEO ImGui v1.0.0
+
+Opcodes agregados:
+
+* IMGUI_BEGIN
+* IMGUI_END
+* IMGUI_CHECKBOX
+* IMGUI_BUTTON
+* IMGUI_TEXT
+* IMGUI_TEXT_WRAPPED
+* IMGUI_TEXT_DISABLED
+* IMGUI_TEXT_COLORED
+* IMGUI_COLUMNS
+* IMGUI_NEXT_COLUMN
+* IMGUI_SPACING
+* IMGUI_DUMMY
+* IMGUI_SAMELINE
+* IMGUI_SLIDER_INT
+* IMGUI_SLIDER_FLOAT
+* IMGUI_COLOR_EDIT
+* IMGUI_COLOR_PICKER
+* IMGUI_BEGIN_CHILD
+* IMGUI_END_CHILD
+* IMGUI_INPUT_INT
+* IMGUI_INPUT_FLOAT
+* IMGUI_SEPARATOR
+* IMGUI_GET_CLEO_IMGUI_VERSION
+* IMGUI_GET_VERSION
+* IMGUI_GET_FRAMERATE
+* IMGUI_COLOR_BUTTON
+* IMGUI_BULLET
+* IMGUI_BULLET_TEXT
+* IMGUI_NEWLINE
+* IMGUI_SET_TOOLTIP
+* IMGUI_COLOR_TOOLTIP
+* IMGUI_RADIO_BUTTON
+* IMGUI_COLLAPSING_HEADER
+* IMGUI_PROGRESS_BAR
+* IMGUI_GET_WINDOW_POSY
+* IMGUI_GET_WINDOW_POSX
+* IMGUI_GET_WINDOW_WIDTH
+* IMGUI_GET_WINDOW_HEIGHT
+* IMGUI_SELECTABLE
+* IMGUI_INVISIBLE_BUTTON
+* IMGUI_DRAWLIST_ADD_CIRCLE
+* IMGUI_DRAWLIST_ADD_CIRCLE_FILLED
+* IMGUI_DRAWLIST_ADD_RECT
+* IMGUI_DRAWLIST_ADD_RECT_FILLED
+* IMGUI_DRAWLIST_ADD_RECT_FILLED_MULTICOLOR
+* IMGUI_DRAWLIST_ADD_TEXT
+* IMGUI_DRAWLIST_ADD_TRIANGLE
+* IMGUI_DRAWLIST_ADD_TRIANGLE_FILLED
+* IMGUI_BEGIN_MAIN_MENU_BAR
+* IMGUI_END_MAIN_MENU_BAR
+* IMGUI_MENU_ITEM
+* IMGUI_STYLE_COLORS_CLASSIC
+* IMGUI_STYLE_COLORS_DARK
+* IMGUI_STYLE_COLORS_DEFAULT
+* IMGUI_STYLE_COLORS_LIGHT
+* IMGUI_GET_STYLE
+* IMGUI_SET_STYLE
+* IMGUI_SET_STYLE_INT
+* IMGUI_GET_COLOR
+* IMGUI_SET_COLOR
+* IMGUI_PUSH_ITEM_WIDTH
+* IMGUI_POP_ITEM_WIDTH
+* IMGUI_PUSH_ITEM_FLAG
+* IMGUI_POP_ITEM_FLAG
+* IMGUI_GET_WINDOW_CONTENT_REGION_WIDTH
+* IMGUI_GET_FRAME_HEIGHT
+* IMGUI_GET_FRAME_HEIGHT_WITH_SPACING
+* IMGUI_GET_STYLE_INT
