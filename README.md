@@ -1,10 +1,19 @@
 # CLEO ImGui
-Project inspired by "CLEO ImGui" by User-Grinch, respecting the order of its opcodes.
+Project inspired by [CLEO ImGui](https://github.com/user-grinch/CLEOImGui) by User-Grinch, respecting the order of its opcodes.
 
 Created by: Matias A. Rossi (MatiDragon)
 
 
 ![front page](17856073058932.webp)
+
+## Change Log
+
+### CLEO ImGui v1.0.1
+
+fixes
+IMGUI_COLOR_TOOLTIP
+IMGUI_GET_CLEO_IMGUI_VERSION
+IMGUI_GET_VERSION
 
 ### CLEO ImGui v1.0.0
 ```ini
@@ -12,8 +21,8 @@ Created by: Matias A. Rossi (MatiDragon)
 0F02=0,imgui_end 
 0F03=3,imgui_checkbox label %1d% imguitypeflags %2d% var (int) %3d% 
 0F04=3,imgui_button label %1d% width (float) %2d% height (float) %3d% 
-0F05=5,imgui_calc_text_height text %1d% hide after ## (bool) %2d% warp width (float) %3d% imguitypeflags %4d% pointer/var (float) %5d% 
-0F06=5,imgui_calc_text_width text %1d% hide after ## (bool) %2d% warp width (float) %3d% imguitypeflags %4d% pointer/var (float) %5d% 
+0F05=5,imgui_calc_text_height text %1d% hide_after (bool) %2d% warp_width (float) %3d% imguitypeflags %4d% pointer/var (float) %5d% 
+0F06=5,imgui_calc_text_width text %1d% hide_after (bool) %2d% warp_width (float) %3d% imguitypeflags %4d% pointer/var (float) %5d% 
 0F07=3,imgui_set_next_window_pos pos x (float) %1d% pos y (float) %2d% imguicond %3d% 
 0F08=3,imgui_set_window_pos pos x (float) %1d% pos y (float) %2d% imguicond %3d% 
 0F09=1,imgui_get_font_size var (float) %1d% 

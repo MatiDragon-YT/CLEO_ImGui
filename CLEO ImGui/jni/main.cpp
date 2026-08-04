@@ -22,6 +22,8 @@ END_DEPLIST()
 // ======================== OPCODES CLEO ========================
 #define CLEO_RegisterOpcode(x, h) cleo->RegisterOpcode(x, h); cleo->RegisterOpcodeFunction(#h, h)
 #define CLEO_Fn(h) void h (void *handle, uint32_t *ip, uint16_t opcode, const char *name)
+#define MAX_STR_LEN 0xFF
+
 // ── Macros para reducir código repetitivo ─────────────────
 #define READ_STRING(v, s) char v[s]; cleoaddon->ReadString(handle, v, s)
 #define READ_INT(name) int name = cleo->ReadParam(handle)->i
@@ -229,17 +231,16 @@ DECL_HOOKv(GTA_KeyboardEvent, bool pushed, int keyNum, int ctrl_or_shift, int al
 }
 
 // ======================== OPCODES CLEO ========================
-// ======================== OPCODES CLEO ========================
 
 // 0F01: imgui_begin
 CLEO_Fn(IMGUI_BEGIN)
 {
-    READ_STRING(lamete, 128);
+    READ_STRING(label, 128);
     READ_INT(shown);    // bool
     READ_INT(flags);    // ImGuiWindowFlags
     READ_INT(mouseVis); //  ignorado de momento
     
-    std::string windowName = lamete;
+    std::string windowName = label;
     g_drawQueue.push_back([windowName, flags, mouseVis]() {
         // ImGui::SetNextWindowBgAlpha(1.0f); // etc si quieres usar mouseVis
         ImGui::Begin(windowName.c_str(), nullptr, flags);
@@ -255,10 +256,9 @@ CLEO_Fn(IMGUI_END)
 // 0F03: imgui_checkbox
 CLEO_Fn(IMGUI_CHECKBOX)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    int flags   = cleo->ReadParam(handle)->i;
-    int* pVar   = &cleo->GetPointerToScriptVar(handle)->i;
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    READ_INTPTR(pVar);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, flags, pVar]() {
@@ -271,10 +271,9 @@ CLEO_Fn(IMGUI_CHECKBOX)
 // 0F04: imgui_button
 CLEO_Fn(IMGUI_BUTTON)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    float w = cleo->ReadParam(handle)->f;
-    float h = cleo->ReadParam(handle)->f;
+    READ_STRING(label, 128);
+    READ_FLOAT(w);
+    READ_FLOAT(h);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, w, h]() {
@@ -285,8 +284,8 @@ CLEO_Fn(IMGUI_BUTTON)
 // 0F0E: imgui_text
 CLEO_Fn(IMGUI_TEXT)
 {
-    char text[256];
-    cleoaddon->ReadString(handle, text, sizeof(text));
+    READ_STRING(text, MAX_STR_LEN);
+
     std::string t = text;
     g_drawQueue.push_back([t]() { ImGui::TextUnformatted(t.c_str()); });
 }
@@ -294,8 +293,8 @@ CLEO_Fn(IMGUI_TEXT)
 // 0F0F: imgui_text_wrapped
 CLEO_Fn(IMGUI_TEXT_WRAPPED)
 {
-    char text[256];
-    cleoaddon->ReadString(handle, text, sizeof(text));
+    READ_STRING(text, MAX_STR_LEN);
+    
     std::string t = text;
     g_drawQueue.push_back([t]() { ImGui::TextWrapped("%s", t.c_str()); });
 }
@@ -303,8 +302,8 @@ CLEO_Fn(IMGUI_TEXT_WRAPPED)
 // 0F10: imgui_text_disabled
 CLEO_Fn(IMGUI_TEXT_DISABLED)
 {
-    char text[256];
-    cleoaddon->ReadString(handle, text, sizeof(text));
+    READ_STRING(text, MAX_STR_LEN);
+    
     std::string t = text;
     g_drawQueue.push_back([t]() { ImGui::TextDisabled("%s", t.c_str()); });
 }
@@ -312,12 +311,12 @@ CLEO_Fn(IMGUI_TEXT_DISABLED)
 // 0F11: imgui_text_colored
 CLEO_Fn(IMGUI_TEXT_COLORED)
 {
-    char text[256];
-    cleoaddon->ReadString(handle, text, sizeof(text));
-    float r = cleo->ReadParam(handle)->f;
-    float g = cleo->ReadParam(handle)->f;
-    float b = cleo->ReadParam(handle)->f;
-    float a = cleo->ReadParam(handle)->f;
+    READ_STRING(text, MAX_STR_LEN);
+    READ_FLOAT(r);
+    READ_FLOAT(g);
+    READ_FLOAT(b);
+    READ_FLOAT(a);
+
     std::string t = text;
     g_drawQueue.push_back([t, r, g, b, a]() {
         ImGui::TextColored(ImVec4(r, g, b, a), "%s", t.c_str());
@@ -327,8 +326,9 @@ CLEO_Fn(IMGUI_TEXT_COLORED)
 // 0F12: imgui_columns
 CLEO_Fn(IMGUI_COLUMNS)
 {
-    int count  = cleo->ReadParam(handle)->i;
-    int border = cleo->ReadParam(handle)->i;
+    READ_INT(count);
+    READ_INT(border);
+    
     g_drawQueue.push_back([count, border]() {
         ImGui::Columns(count, nullptr, border != 0);
     });
@@ -349,8 +349,9 @@ CLEO_Fn(IMGUI_SPACING)
 // 0F15: imgui_dummy
 CLEO_Fn(IMGUI_DUMMY)
 {
-    float x = cleo->ReadParam(handle)->f;
-    float y = cleo->ReadParam(handle)->f;
+    READ_FLOAT(x);
+    READ_FLOAT(y);
+
     g_drawQueue.push_back([x, y]() { ImGui::Dummy(ImVec2(x, y)); });
 }
 
@@ -363,14 +364,13 @@ CLEO_Fn(IMGUI_SAMELINE)
 // 0F17: imgui_slider_int
 CLEO_Fn(IMGUI_SLIDER_INT)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    int flags   = cleo->ReadParam(handle)->i;
-    int* pVar   = &cleo->GetPointerToScriptVar(handle)->i;
-    int minVal  = cleo->ReadParam(handle)->i;
-    int maxVal  = cleo->ReadParam(handle)->i;
-    int slFlags = cleo->ReadParam(handle)->i;   // ImGuiSliderFlags
-    int count   = cleo->ReadParam(handle)->i;   // ignorado (solo para float)
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    READ_INT_PTR(pVar);
+    READ_INT(minVal);
+    READ_INT(maxVal);
+    READ_INT(slFlags);
+    READ_INT(count);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, pVar, minVal, maxVal, slFlags]() {
@@ -381,14 +381,13 @@ CLEO_Fn(IMGUI_SLIDER_INT)
 // 0F18: imgui_slider_float
 CLEO_Fn(IMGUI_SLIDER_FLOAT)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    int flags    = cleo->ReadParam(handle)->i;
-    float* pVar  = &cleo->GetPointerToScriptVar(handle)->f;
-    float minVal = cleo->ReadParam(handle)->f;
-    float maxVal = cleo->ReadParam(handle)->f;
-    int slFlags  = cleo->ReadParam(handle)->i;
-    int count    = cleo->ReadParam(handle)->i;  // formato "%f" o similar, ignorado
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    READ_FLOAT_PTR(pVar);
+    READ_FLOAT(minVal);
+    READ_FLOAT(maxVal);
+    READ_INT(slFlags);
+    READ_INT(count);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, pVar, minVal, maxVal, slFlags]() {
@@ -399,12 +398,11 @@ CLEO_Fn(IMGUI_SLIDER_FLOAT)
 // 0F19: imgui_color_edit
 CLEO_Fn(IMGUI_COLOR_EDIT)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    int flags      = cleo->ReadParam(handle)->i;
-    float* pCol    = &cleo->GetPointerToScriptVar(handle)->f;  // asume 3 floats RGBA? o RGB?
-    int editFlags  = cleo->ReadParam(handle)->i;
-    int alphaFlag  = cleo->ReadParam(handle)->i;
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    READ_FLOAT_PTR(pCol);
+    READ_INT(editFlags);
+    READ_INT(alphaFlag);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, pCol, editFlags, alphaFlag]() {
@@ -419,12 +417,11 @@ CLEO_Fn(IMGUI_COLOR_EDIT)
 // 0F1A: imgui_color_picker
 CLEO_Fn(IMGUI_COLOR_PICKER)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    int flags      = cleo->ReadParam(handle)->i;
-    float* pCol    = &cleo->GetPointerToScriptVar(handle)->f;
-    int pickFlags  = cleo->ReadParam(handle)->i;
-    int alphaFlag  = cleo->ReadParam(handle)->i;
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    READ_FLOAT_PTR(pCol);
+    READ_INT(pickFlags);
+    READ_INT(alphaFlag);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, pCol, pickFlags, alphaFlag]() {
@@ -438,12 +435,11 @@ CLEO_Fn(IMGUI_COLOR_PICKER)
 // 0F1B: imgui_begin_child
 CLEO_Fn(IMGUI_BEGIN_CHILD)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    float w    = cleo->ReadParam(handle)->f;
-    float h    = cleo->ReadParam(handle)->f;
-    int border = cleo->ReadParam(handle)->i;
-    int flags  = cleo->ReadParam(handle)->i;
+    READ_STRING(label, 128);
+    READ_FLOAT(w);
+    READ_FLOAT(h);
+    READ_INT(border);
+    READ_INT(flags);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, w, h, border, flags]() {
@@ -460,12 +456,11 @@ CLEO_Fn(IMGUI_END_CHILD)
 // 0F1D: imgui_input_int
 CLEO_Fn(IMGUI_INPUT_INT)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    int flags      = cleo->ReadParam(handle)->i;
-    int* pVar      = &cleo->GetPointerToScriptVar(handle)->i;
-    int inputFlags = cleo->ReadParam(handle)->i;
-    int count      = cleo->ReadParam(handle)->i;   // step/step_fast, ignorado
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    READ_INT_PTR(pVar);
+    READ_INT(inputFlags);
+    READ_INT(count);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, pVar, inputFlags]() {
@@ -476,12 +471,11 @@ CLEO_Fn(IMGUI_INPUT_INT)
 // 0F1E: imgui_input_float
 CLEO_Fn(IMGUI_INPUT_FLOAT)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    int flags       = cleo->ReadParam(handle)->i;
-    float* pVar     = &cleo->GetPointerToScriptVar(handle)->f;
-    int inputFlags  = cleo->ReadParam(handle)->i;
-    int count       = cleo->ReadParam(handle)->i;   // formato "%f", ignorado
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    READ_FLOAT_PTR(pVar);
+    READ_INT(inputFlags);
+    READ_INT(count);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, pVar, inputFlags]() {
@@ -516,15 +510,14 @@ CLEO_Fn(IMGUI_GET_FRAMERATE)
 // 0F29: imgui_color_button
 CLEO_Fn(IMGUI_COLOR_BUTTON)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    float r = cleo->ReadParam(handle)->f;
-    float g = cleo->ReadParam(handle)->f;
-    float b = cleo->ReadParam(handle)->f;
-    float a = cleo->ReadParam(handle)->f;
-    int flags   = cleo->ReadParam(handle)->i;
-    float w     = cleo->ReadParam(handle)->f;
-    float h     = cleo->ReadParam(handle)->f;
+    READ_STRING(label, 128);
+    READ_FLOAT(r);
+    READ_FLOAT(g);
+    READ_FLOAT(b);
+    READ_FLOAT(a);
+    READ_INT(flags);
+    READ_FLOAT(w);
+    READ_FLOAT(h);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, r, g, b, a, flags, w, h]() {
@@ -541,8 +534,7 @@ CLEO_Fn(IMGUI_BULLET)
 // 0F2B: imgui_bullet_text
 CLEO_Fn(IMGUI_BULLET_TEXT)
 {
-    char text[256];
-    cleoaddon->ReadString(handle, text, sizeof(text));
+    READ_STRING(text, MAX_STR_LEN);
     std::string t = text;
     g_drawQueue.push_back([t]() { ImGui::BulletText("%s", t.c_str()); });
 }
@@ -556,8 +548,7 @@ CLEO_Fn(IMGUI_NEWLINE)
 // 0F2D: imgui_set_tooltip
 CLEO_Fn(IMGUI_SET_TOOLTIP)
 {
-    char text[256];
-    cleoaddon->ReadString(handle, text, sizeof(text));
+    READ_STRING(text, MAX_STR_LEN);
     std::string t = text;
     g_drawQueue.push_back([t]() { ImGui::SetTooltip("%s", t.c_str()); });
 }
@@ -565,13 +556,13 @@ CLEO_Fn(IMGUI_SET_TOOLTIP)
 // 0F2E: imgui_color_tooltip
 CLEO_Fn(IMGUI_COLOR_TOOLTIP)
 {
-    char text[256];
-    cleoaddon->ReadString(handle, text, sizeof(text));
-    float r = cleo->ReadParam(handle)->f;
-    float g = cleo->ReadParam(handle)->f;
-    float b = cleo->ReadParam(handle)->f;
-    float a = cleo->ReadParam(handle)->f;
-    int flags = cleo->ReadParam(handle)->i;
+    READ_STRING(text, MAX_STR_LEN);
+    READ_FLOAT(r);
+    READ_FLOAT(g);
+    READ_FLOAT(b);
+    READ_FLOAT(a);
+    READ_INT(flags);
+    
     std::string t = text;
     g_drawQueue.push_back([t, r, g, b, a, flags]() {
       float col[4] = {r, g, b, a};
@@ -644,25 +635,24 @@ CLEO_Fn(IMGUI_IS_ITEM_CLICKED)
 // 0F35: imgui_is_window_hovered
 CLEO_Fn(IMGUI_IS_WINDOW_HOVERED)
 {
-    int id    = cleo->ReadParam(handle)->i;
-    int flags = cleo->ReadParam(handle)->i;
+    READ_INT(id);
+    READ_INT(flags);
 }
 
 // 0F36: imgui_is_window_focused
 CLEO_Fn(IMGUI_IS_WINDOW_FOCUSED)
 {
-    int id    = cleo->ReadParam(handle)->i;
-    int flags = cleo->ReadParam(handle)->i;
+    READ_INT(id);
+    READ_INT(flags);
 }
 
 // 0F37: imgui_radio_button
 CLEO_Fn(IMGUI_RADIO_BUTTON)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    int flags   = cleo->ReadParam(handle)->i;
-    int* pVar   = &cleo->GetPointerToScriptVar(handle)->i;
-    int value   = cleo->ReadParam(handle)->i;
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    READ_INT_PTR(pVar);
+    READ_INT(value);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, pVar, value]() {
@@ -673,9 +663,8 @@ CLEO_Fn(IMGUI_RADIO_BUTTON)
 // 0F38: imgui_collapsing_header
 CLEO_Fn(IMGUI_COLLAPSING_HEADER)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    int flags = cleo->ReadParam(handle)->i;
+    READ_STRING(label, 128);
+    READ_INT(flags);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, flags]() {
@@ -686,11 +675,10 @@ CLEO_Fn(IMGUI_COLLAPSING_HEADER)
 // 0F39: imgui_progress_bar
 CLEO_Fn(IMGUI_PROGRESS_BAR)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    float fraction = cleo->ReadParam(handle)->f;
-    float w = cleo->ReadParam(handle)->f;
-    float h = cleo->ReadParam(handle)->f;
+    READ_STRING(label, 128);
+    READ_FLOAT(fraction);
+    READ_FLOAT(w);
+    READ_FLOAT(h);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, fraction, w, h]() {
@@ -701,40 +689,39 @@ CLEO_Fn(IMGUI_PROGRESS_BAR)
 // 0F3A: imgui_get_window_posy  (directo)
 CLEO_Fn(IMGUI_GET_WINDOW_POSY)
 {
-    int flags = cleo->ReadParam(handle)->i;
+    READ_INT(flags);
     cleo->GetPointerToScriptVar(handle)->f = ImGui::GetWindowPos().y;
 }
 
 // 0F3B: imgui_get_window_posx
 CLEO_Fn(IMGUI_GET_WINDOW_POSX)
 {
-    int flags = cleo->ReadParam(handle)->i;
+    READ_INT(flags);
     cleo->GetPointerToScriptVar(handle)->f = ImGui::GetWindowPos().x;
 }
 
 // 0F3C: imgui_get_window_width
 CLEO_Fn(IMGUI_GET_WINDOW_WIDTH)
 {
-    int flags = cleo->ReadParam(handle)->i;
+    READ_INT(flags);
     cleo->GetPointerToScriptVar(handle)->f = ImGui::GetWindowWidth();
 }
 
 // 0F3D: imgui_get_window_height
 CLEO_Fn(IMGUI_GET_WINDOW_HEIGHT)
 {
-    int flags = cleo->ReadParam(handle)->i;
+    READ_INT(flags);
     cleo->GetPointerToScriptVar(handle)->f = ImGui::GetWindowHeight();
 }
 
 // 0F3E: imgui_selectable
 CLEO_Fn(IMGUI_SELECTABLE)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    int* pSelected = &cleo->GetPointerToScriptVar(handle)->i;
-    int flags      = cleo->ReadParam(handle)->i;
-    float w        = cleo->ReadParam(handle)->f;
-    float h        = cleo->ReadParam(handle)->f;
+    READ_STRING(label, 128);
+    READ_INT_PTR(pSelected);
+    READ_INT(flags);
+    READ_FLOAT(w);
+    READ_FLOAT(h);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, pSelected, flags, w, h]() {
@@ -775,11 +762,10 @@ CLEO_Fn(IMGUI_IMAGE_BUTTON_EX)
 // 0F46: imgui_invisible_button
 CLEO_Fn(IMGUI_INVISIBLE_BUTTON)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
-    float w = cleo->ReadParam(handle)->f;
-    float h = cleo->ReadParam(handle)->f;
-    int flags = cleo->ReadParam(handle)->i;
+    READ_STRING(label, 128);
+    READ_FLOAT(w);
+    READ_FLOAT(h);
+    READ_INT(flags);
 
     std::string lbl = label;
     g_drawQueue.push_back([lbl, w, h, flags]() {
@@ -790,12 +776,12 @@ CLEO_Fn(IMGUI_INVISIBLE_BUTTON)
 // 0F47: imgui_drawlist_add_circle
 CLEO_Fn(IMGUI_DRAWLIST_ADD_CIRCLE)
 {
-    float cx = cleo->ReadParam(handle)->f;
-    float cy = cleo->ReadParam(handle)->f;
-    float r  = cleo->ReadParam(handle)->f;
-    int col  = cleo->ReadParam(handle)->i;
-    int seg  = cleo->ReadParam(handle)->i;
-    float thick = (float)cleo->ReadParam(handle)->i;
+    READ_FLOAT(cx);
+    READ_FLOAT(cy);
+    READ_FLOAT(r);
+    READ_INT(col);
+    READ_INT(seg);
+    READ_FLOAT(thick);
 
     g_drawQueue.push_back([cx, cy, r, col, seg, thick]() {
         ImGui::GetWindowDrawList()->AddCircle(ImVec2(cx, cy), r, col, seg, thick);
@@ -805,11 +791,11 @@ CLEO_Fn(IMGUI_DRAWLIST_ADD_CIRCLE)
 // 0F48: imgui_drawlist_add_circle_filled
 CLEO_Fn(IMGUI_DRAWLIST_ADD_CIRCLE_FILLED)
 {
-    float cx = cleo->ReadParam(handle)->f;
-    float cy = cleo->ReadParam(handle)->f;
-    float r  = cleo->ReadParam(handle)->f;
-    int col  = cleo->ReadParam(handle)->i;
-    int seg  = cleo->ReadParam(handle)->i;
+    READ_FLOAT(cx);
+    READ_FLOAT(cy);
+    READ_FLOAT(r);
+    READ_INT(col);
+    READ_INT(seg);
 
     g_drawQueue.push_back([cx, cy, r, col, seg]() {
         ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(cx, cy), r, col, seg);
@@ -819,14 +805,14 @@ CLEO_Fn(IMGUI_DRAWLIST_ADD_CIRCLE_FILLED)
 // 0F49: imgui_drawlist_add_rect
 CLEO_Fn(IMGUI_DRAWLIST_ADD_RECT)
 {
-    float x1 = cleo->ReadParam(handle)->f;
-    float y1 = cleo->ReadParam(handle)->f;
-    float x2 = cleo->ReadParam(handle)->f;
-    float y2 = cleo->ReadParam(handle)->f;
-    int col  = cleo->ReadParam(handle)->i;
-    int rounding = cleo->ReadParam(handle)->i;
-    int corners  = cleo->ReadParam(handle)->i;
-    float thick  = (float)cleo->ReadParam(handle)->i;
+    READ_FLOAT(x1);
+    READ_FLOAT(y1);
+    READ_FLOAT(x2);
+    READ_FLOAT(y2);
+    READ_INT(col);
+    READ_INT(rounding);
+    READ_INT(corners);
+    READ_FLOAT(thick);
 
     g_drawQueue.push_back([x1,y1,x2,y2,col,rounding,corners,thick]() {
         ImGui::GetWindowDrawList()->AddRect(ImVec2(x1,y1), ImVec2(x2,y2), col, (float)rounding, corners, thick);
@@ -836,13 +822,13 @@ CLEO_Fn(IMGUI_DRAWLIST_ADD_RECT)
 // 0F4A: imgui_drawlist_add_rect_filled
 CLEO_Fn(IMGUI_DRAWLIST_ADD_RECT_FILLED)
 {
-    float x1 = cleo->ReadParam(handle)->f;
-    float y1 = cleo->ReadParam(handle)->f;
-    float x2 = cleo->ReadParam(handle)->f;
-    float y2 = cleo->ReadParam(handle)->f;
-    int col  = cleo->ReadParam(handle)->i;
-    int rounding = cleo->ReadParam(handle)->i;
-    int corners  = cleo->ReadParam(handle)->i;
+    READ_FLOAT(x1);
+    READ_FLOAT(y1);
+    READ_FLOAT(x2);
+    READ_FLOAT(y2);
+    READ_INT(col);
+    READ_INT(rounding);
+    READ_INT(corners);
 
     g_drawQueue.push_back([x1,y1,x2,y2,col,rounding,corners]() {
         ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x1,y1), ImVec2(x2,y2), col, (float)rounding, corners);
@@ -852,14 +838,14 @@ CLEO_Fn(IMGUI_DRAWLIST_ADD_RECT_FILLED)
 // 0F4B: imgui_drawlist_add_rect_filled_multicolor
 CLEO_Fn(IMGUI_DRAWLIST_ADD_RECT_FILLED_MULTICOLOR)
 {
-    float x1 = cleo->ReadParam(handle)->f;
-    float y1 = cleo->ReadParam(handle)->f;
-    float x2 = cleo->ReadParam(handle)->f;
-    float y2 = cleo->ReadParam(handle)->f;
-    int ul = cleo->ReadParam(handle)->i;
-    int ur = cleo->ReadParam(handle)->i;
-    int dl = cleo->ReadParam(handle)->i;
-    int dr = cleo->ReadParam(handle)->i;
+    READ_FLOAT(x1);
+    READ_FLOAT(y1);
+    READ_FLOAT(x2);
+    READ_FLOAT(y2);
+    READ_INT(ul);
+    READ_INT(ur);
+    READ_INT(dl);
+    READ_INT(dr);
 
     g_drawQueue.push_back([x1,y1,x2,y2,ul,ur,dl,dr]() {
         ImGui::GetWindowDrawList()->AddRectFilledMultiColor(ImVec2(x1,y1), ImVec2(x2,y2), ul, ur, dl, dr);
@@ -869,12 +855,12 @@ CLEO_Fn(IMGUI_DRAWLIST_ADD_RECT_FILLED_MULTICOLOR)
 // 0F4C: imgui_drawlist_add_text
 CLEO_Fn(IMGUI_DRAWLIST_ADD_TEXT)
 {
-    char text[256];
-    cleoaddon->ReadString(handle, text, sizeof(text));
-    float x = cleo->ReadParam(handle)->f;
-    float y = cleo->ReadParam(handle)->f;
-    float size = cleo->ReadParam(handle)->f;
-    int col = cleo->ReadParam(handle)->i;
+    READ_STRING(text, MAX_STR_LEN);
+    READ_FLOAT(x);
+    READ_FLOAT(y);
+    READ_FLOAT(size);
+    READ_INT(col);
+
     std::string t = text;
     g_drawQueue.push_back([t, x, y, size, col]() {
         ImGui::GetWindowDrawList()->AddText(ImVec2(x, y), col, t.c_str());
@@ -884,10 +870,14 @@ CLEO_Fn(IMGUI_DRAWLIST_ADD_TEXT)
 // 0F4D: imgui_drawlist_add_triangle
 CLEO_Fn(IMGUI_DRAWLIST_ADD_TRIANGLE)
 {
-    float x1 = cleo->ReadParam(handle)->f, y1 = cleo->ReadParam(handle)->f;
-    float x2 = cleo->ReadParam(handle)->f, y2 = cleo->ReadParam(handle)->f;
-    float x3 = cleo->ReadParam(handle)->f, y3 = cleo->ReadParam(handle)->f;
-    int col = cleo->ReadParam(handle)->i;
+    READ_FLOAT(x1);
+    READ_FLOAT(y1);
+    READ_FLOAT(x2);
+    READ_FLOAT(y2);
+    READ_FLOAT(x3);
+    READ_FLOAT(y3);
+    READ_INT(col);
+    
     float thick = (float)cleo->ReadParam(handle)->i;
     g_drawQueue.push_back([=]() {
         ImGui::GetWindowDrawList()->AddTriangle(ImVec2(x1,y1), ImVec2(x2,y2), ImVec2(x3,y3), col, thick);
@@ -897,10 +887,14 @@ CLEO_Fn(IMGUI_DRAWLIST_ADD_TRIANGLE)
 // 0F4E: imgui_drawlist_add_triangle_filled
 CLEO_Fn(IMGUI_DRAWLIST_ADD_TRIANGLE_FILLED)
 {
-    float x1 = cleo->ReadParam(handle)->f, y1 = cleo->ReadParam(handle)->f;
-    float x2 = cleo->ReadParam(handle)->f, y2 = cleo->ReadParam(handle)->f;
-    float x3 = cleo->ReadParam(handle)->f, y3 = cleo->ReadParam(handle)->f;
-    int col = cleo->ReadParam(handle)->i;
+    READ_FLOAT(x1);
+    READ_FLOAT(y1);
+    READ_FLOAT(x2);
+    READ_FLOAT(y2);
+    READ_FLOAT(x3);
+    READ_FLOAT(y3);
+    READ_INT(col);
+
     g_drawQueue.push_back([=]() {
         ImGui::GetWindowDrawList()->AddTriangleFilled(ImVec2(x1,y1), ImVec2(x2,y2), ImVec2(x3,y3), col);
     });
@@ -921,8 +915,7 @@ CLEO_Fn(IMGUI_END_MAIN_MENU_BAR)
 // 0F51: imgui_menu_item
 CLEO_Fn(IMGUI_MENU_ITEM)
 {
-    char label[128];
-    cleoaddon->ReadString(handle, label, sizeof(label));
+    READ_STRING(label, 128);
     std::string lbl = label;
     g_drawQueue.push_back([lbl]() { ImGui::MenuItem(lbl.c_str()); });
 }
@@ -936,7 +929,7 @@ CLEO_Fn(IMGUI_STYLE_COLORS_LIGHT)   { ImGui::StyleColorsLight(); }
 // 0F57: imgui_get_style  (directo)
 CLEO_Fn(IMGUI_GET_STYLE)
 {
-    int off = cleo->ReadParam(handle)->i;
+    READ_INT(off);
     // Los offsets están definidos en ImGuiStyleVar, mapearlos es complejo; stub.
     cleo->GetPointerToScriptVar(handle)->f = 0.0f;
 }
@@ -944,45 +937,45 @@ CLEO_Fn(IMGUI_GET_STYLE)
 // 0F58: imgui_set_style  (directo)
 CLEO_Fn(IMGUI_SET_STYLE)
 {
-    int off = cleo->ReadParam(handle)->i;
-    float val = cleo->ReadParam(handle)->f;
+    READ_INT(off);
+    READ_FLOAT(val);
     // stub
 }
 
 // 0F59: imgui_set_style_int
 CLEO_Fn(IMGUI_SET_STYLE_INT)
 {
-    int off = cleo->ReadParam(handle)->i;
-    int val = cleo->ReadParam(handle)->i;
+    READ_INT(off);
+    READ_INT(val);
 }
 
 // 0F5A: imgui_get_color
 CLEO_Fn(IMGUI_GET_COLOR)
 {
-    int off = cleo->ReadParam(handle)->i;
+    READ_INT(off);
     float r,g,b,a;
     // stub
-    cleo->GetPointerToScriptVar(handle)->f = 0; // r
-    cleo->GetPointerToScriptVar(handle)->f = 0; // g
-    cleo->GetPointerToScriptVar(handle)->f = 0; // b
-    cleo->GetPointerToScriptVar(handle)->f = 0; // a
+    WRITE_FLOAT(r);
+    WRITE_FLOAT(g);
+    WRITE_FLOAT(b);
+    WRITE_FLOAT(a);
 }
 
 // 0F5B: imgui_set_color
 CLEO_Fn(IMGUI_SET_COLOR)
 {
-    int off = cleo->ReadParam(handle)->i;
-    float r = cleo->ReadParam(handle)->f;
-    float g = cleo->ReadParam(handle)->f;
-    float b = cleo->ReadParam(handle)->f;
-    float a = cleo->ReadParam(handle)->f;
+    READ_INT(off);
+    READ_FLOAT(r);
+    READ_FLOAT(g);
+    READ_FLOAT(b);
+    READ_FLOAT(a);
     // stub
 }
 
 // 0F5C: imgui_push_item_width
 CLEO_Fn(IMGUI_PUSH_ITEM_WIDTH)
 {
-    float w = cleo->ReadParam(handle)->f;
+    READ_FLOAT(w);
     g_drawQueue.push_back([w]() { ImGui::PushItemWidth(w); });
 }
 
@@ -995,8 +988,8 @@ CLEO_Fn(IMGUI_POP_ITEM_WIDTH)
 // 0F5E: imgui_push_item_flag
 CLEO_Fn(IMGUI_PUSH_ITEM_FLAG)
 {
-    int flag = cleo->ReadParam(handle)->i;
-    int en   = cleo->ReadParam(handle)->i;
+    READ_INT(flag);
+    READ_INT(en);
     g_drawQueue.push_back([flag, en]() { ImGui::PushItemFlag(flag, en != 0); });
 }
 
@@ -1009,27 +1002,28 @@ CLEO_Fn(IMGUI_POP_ITEM_FLAG)
 // 0F60: imgui_get_window_content_region_width  (directo)
 CLEO_Fn(IMGUI_GET_WINDOW_CONTENT_REGION_WIDTH)
 {
-    int flags = cleo->ReadParam(handle)->i;
+    READ_INT(flags);
     cleo->GetPointerToScriptVar(handle)->f;//= ImGui::GetWindowContentRegionWidth();
 }
 
 // 0F61: imgui_get_frame_height
 CLEO_Fn(IMGUI_GET_FRAME_HEIGHT)
 {
-    int flags = cleo->ReadParam(handle)->i;
+    READ_INT(flags);
     cleo->GetPointerToScriptVar(handle)->f = ImGui::GetFrameHeight();
 }
 
 // 0F62: imgui_get_frame_height_with_spacing
 CLEO_Fn(IMGUI_GET_FRAME_HEIGHT_WITH_SPACING)
 {
+    READ_INT(flags);
     cleo->GetPointerToScriptVar(handle)->f = ImGui::GetFrameHeightWithSpacing();
 }
 
 // 0F63: imgui_get_style_int  (directo)
 CLEO_Fn(IMGUI_GET_STYLE_INT)
 {
-    int off = cleo->ReadParam(handle)->i;
+    READ_INT(off);
     cleo->GetPointerToScriptVar(handle)->i = 0;
 }
 
@@ -1071,86 +1065,86 @@ extern "C" void OnModLoad()
     if (!cleoaddon) { logger->Error("CLEOAddon interface not found"); return; }
 
     CLEO_RegisterOpcode(0x0F01, IMGUI_BEGIN);
-CLEO_RegisterOpcode(0x0F02, IMGUI_END);
-CLEO_RegisterOpcode(0x0F03, IMGUI_CHECKBOX);
-CLEO_RegisterOpcode(0x0F04, IMGUI_BUTTON);
-CLEO_RegisterOpcode(0x0F0E, IMGUI_TEXT);
-CLEO_RegisterOpcode(0x0F0F, IMGUI_TEXT_WRAPPED);
-CLEO_RegisterOpcode(0x0F10, IMGUI_TEXT_DISABLED);
-CLEO_RegisterOpcode(0x0F11, IMGUI_TEXT_COLORED);
-CLEO_RegisterOpcode(0x0F12, IMGUI_COLUMNS);
-CLEO_RegisterOpcode(0x0F13, IMGUI_NEXT_COLUMN);
-CLEO_RegisterOpcode(0x0F14, IMGUI_SPACING);
-CLEO_RegisterOpcode(0x0F15, IMGUI_DUMMY);
-CLEO_RegisterOpcode(0x0F16, IMGUI_SAMELINE);
-CLEO_RegisterOpcode(0x0F17, IMGUI_SLIDER_INT);
-CLEO_RegisterOpcode(0x0F18, IMGUI_SLIDER_FLOAT);
-CLEO_RegisterOpcode(0x0F19, IMGUI_COLOR_EDIT);
-CLEO_RegisterOpcode(0x0F1A, IMGUI_COLOR_PICKER);
-CLEO_RegisterOpcode(0x0F1B, IMGUI_BEGIN_CHILD);
-CLEO_RegisterOpcode(0x0F1C, IMGUI_END_CHILD);
-CLEO_RegisterOpcode(0x0F1D, IMGUI_INPUT_INT);
-CLEO_RegisterOpcode(0x0F1E, IMGUI_INPUT_FLOAT);
-CLEO_RegisterOpcode(0x0F25, IMGUI_SEPARATOR);
-CLEO_RegisterOpcode(0x0F26, IMGUI_GET_CLEO_IMGUI_VERSION);
-CLEO_RegisterOpcode(0x0F27, IMGUI_GET_VERSION);
-CLEO_RegisterOpcode(0x0F28, IMGUI_GET_FRAMERATE);
-CLEO_RegisterOpcode(0x0F29, IMGUI_COLOR_BUTTON);
-CLEO_RegisterOpcode(0x0F2A, IMGUI_BULLET);
-CLEO_RegisterOpcode(0x0F2B, IMGUI_BULLET_TEXT);
-CLEO_RegisterOpcode(0x0F2C, IMGUI_NEWLINE);
-CLEO_RegisterOpcode(0x0F2D, IMGUI_SET_TOOLTIP);
-CLEO_RegisterOpcode(0x0F2E, IMGUI_COLOR_TOOLTIP);
-CLEO_RegisterOpcode(0x0F2F, IMGUI_IS_ITEM_HOVERED);
-CLEO_RegisterOpcode(0x0F30, IMGUI_IS_ITEM_FOCUSED);
-CLEO_RegisterOpcode(0x0F31, IMGUI_IS_ITEM_ACTIVATED);
-CLEO_RegisterOpcode(0x0F32, IMGUI_IS_ITEM_DEACTIVATED);
-CLEO_RegisterOpcode(0x0F33, IMGUI_IS_ITEM_ACTIVE);
-CLEO_RegisterOpcode(0x0F34, IMGUI_IS_ITEM_CLICKED);
-CLEO_RegisterOpcode(0x0F35, IMGUI_IS_WINDOW_HOVERED);
-CLEO_RegisterOpcode(0x0F36, IMGUI_IS_WINDOW_FOCUSED);
-CLEO_RegisterOpcode(0x0F37, IMGUI_RADIO_BUTTON);
-CLEO_RegisterOpcode(0x0F38, IMGUI_COLLAPSING_HEADER);
-CLEO_RegisterOpcode(0x0F39, IMGUI_PROGRESS_BAR);
-CLEO_RegisterOpcode(0x0F3A, IMGUI_GET_WINDOW_POSY);
-CLEO_RegisterOpcode(0x0F3B, IMGUI_GET_WINDOW_POSX);
-CLEO_RegisterOpcode(0x0F3C, IMGUI_GET_WINDOW_WIDTH);
-CLEO_RegisterOpcode(0x0F3D, IMGUI_GET_WINDOW_HEIGHT);
-CLEO_RegisterOpcode(0x0F3E, IMGUI_SELECTABLE);
-CLEO_RegisterOpcode(0x0F40, IMGUI_LOAD_TEXTURE);
-CLEO_RegisterOpcode(0x0F41, IMGUI_IMAGE);
-CLEO_RegisterOpcode(0x0F42, IMGUI_IMAGE_EX);
-CLEO_RegisterOpcode(0x0F43, IMGUI_IMAGE_BUTTON);
-CLEO_RegisterOpcode(0x0F44, IMGUI_IMAGE_BUTTON_EX);
-CLEO_RegisterOpcode(0x0F46, IMGUI_INVISIBLE_BUTTON);
-CLEO_RegisterOpcode(0x0F47, IMGUI_DRAWLIST_ADD_CIRCLE);
-CLEO_RegisterOpcode(0x0F48, IMGUI_DRAWLIST_ADD_CIRCLE_FILLED);
-CLEO_RegisterOpcode(0x0F49, IMGUI_DRAWLIST_ADD_RECT);
-CLEO_RegisterOpcode(0x0F4A, IMGUI_DRAWLIST_ADD_RECT_FILLED);
-CLEO_RegisterOpcode(0x0F4B, IMGUI_DRAWLIST_ADD_RECT_FILLED_MULTICOLOR);
-CLEO_RegisterOpcode(0x0F4C, IMGUI_DRAWLIST_ADD_TEXT);
-CLEO_RegisterOpcode(0x0F4D, IMGUI_DRAWLIST_ADD_TRIANGLE);
-CLEO_RegisterOpcode(0x0F4E, IMGUI_DRAWLIST_ADD_TRIANGLE_FILLED);
-CLEO_RegisterOpcode(0x0F4F, IMGUI_BEGIN_MAIN_MENU_BAR);
-CLEO_RegisterOpcode(0x0F50, IMGUI_END_MAIN_MENU_BAR);
-CLEO_RegisterOpcode(0x0F51, IMGUI_MENU_ITEM);
-CLEO_RegisterOpcode(0x0F52, IMGUI_STYLE_COLORS_CLASSIC);
-CLEO_RegisterOpcode(0x0F53, IMGUI_STYLE_COLORS_DARK);
-CLEO_RegisterOpcode(0x0F54, IMGUI_STYLE_COLORS_DEFAULT);
-CLEO_RegisterOpcode(0x0F55, IMGUI_STYLE_COLORS_LIGHT);
-CLEO_RegisterOpcode(0x0F57, IMGUI_GET_STYLE);
-CLEO_RegisterOpcode(0x0F58, IMGUI_SET_STYLE);
-CLEO_RegisterOpcode(0x0F59, IMGUI_SET_STYLE_INT);
-CLEO_RegisterOpcode(0x0F5A, IMGUI_GET_COLOR);
-CLEO_RegisterOpcode(0x0F5B, IMGUI_SET_COLOR);
-CLEO_RegisterOpcode(0x0F5C, IMGUI_PUSH_ITEM_WIDTH);
-CLEO_RegisterOpcode(0x0F5D, IMGUI_POP_ITEM_WIDTH);
-CLEO_RegisterOpcode(0x0F5E, IMGUI_PUSH_ITEM_FLAG);
-CLEO_RegisterOpcode(0x0F5F, IMGUI_POP_ITEM_FLAG);
-CLEO_RegisterOpcode(0x0F60, IMGUI_GET_WINDOW_CONTENT_REGION_WIDTH);
-CLEO_RegisterOpcode(0x0F61, IMGUI_GET_FRAME_HEIGHT);
-CLEO_RegisterOpcode(0x0F62, IMGUI_GET_FRAME_HEIGHT_WITH_SPACING);
-CLEO_RegisterOpcode(0x0F63, IMGUI_GET_STYLE_INT);
+    CLEO_RegisterOpcode(0x0F02, IMGUI_END);
+    CLEO_RegisterOpcode(0x0F03, IMGUI_CHECKBOX);
+    CLEO_RegisterOpcode(0x0F04, IMGUI_BUTTON);
+    CLEO_RegisterOpcode(0x0F0E, IMGUI_TEXT);
+    CLEO_RegisterOpcode(0x0F0F, IMGUI_TEXT_WRAPPED);
+    CLEO_RegisterOpcode(0x0F10, IMGUI_TEXT_DISABLED);
+    CLEO_RegisterOpcode(0x0F11, IMGUI_TEXT_COLORED);
+    CLEO_RegisterOpcode(0x0F12, IMGUI_COLUMNS);
+    CLEO_RegisterOpcode(0x0F13, IMGUI_NEXT_COLUMN);
+    CLEO_RegisterOpcode(0x0F14, IMGUI_SPACING);
+    CLEO_RegisterOpcode(0x0F15, IMGUI_DUMMY);
+    CLEO_RegisterOpcode(0x0F16, IMGUI_SAMELINE);
+    CLEO_RegisterOpcode(0x0F17, IMGUI_SLIDER_INT);
+    CLEO_RegisterOpcode(0x0F18, IMGUI_SLIDER_FLOAT);
+    CLEO_RegisterOpcode(0x0F19, IMGUI_COLOR_EDIT);
+    CLEO_RegisterOpcode(0x0F1A, IMGUI_COLOR_PICKER);
+    CLEO_RegisterOpcode(0x0F1B, IMGUI_BEGIN_CHILD);
+    CLEO_RegisterOpcode(0x0F1C, IMGUI_END_CHILD);
+    CLEO_RegisterOpcode(0x0F1D, IMGUI_INPUT_INT);
+    CLEO_RegisterOpcode(0x0F1E, IMGUI_INPUT_FLOAT);
+    CLEO_RegisterOpcode(0x0F25, IMGUI_SEPARATOR);
+    CLEO_RegisterOpcode(0x0F26, IMGUI_GET_CLEO_IMGUI_VERSION);
+    CLEO_RegisterOpcode(0x0F27, IMGUI_GET_VERSION);
+    CLEO_RegisterOpcode(0x0F28, IMGUI_GET_FRAMERATE);
+    CLEO_RegisterOpcode(0x0F29, IMGUI_COLOR_BUTTON);
+    CLEO_RegisterOpcode(0x0F2A, IMGUI_BULLET);
+    CLEO_RegisterOpcode(0x0F2B, IMGUI_BULLET_TEXT);
+    CLEO_RegisterOpcode(0x0F2C, IMGUI_NEWLINE);
+    CLEO_RegisterOpcode(0x0F2D, IMGUI_SET_TOOLTIP);
+    CLEO_RegisterOpcode(0x0F2E, IMGUI_COLOR_TOOLTIP);
+    CLEO_RegisterOpcode(0x0F2F, IMGUI_IS_ITEM_HOVERED);
+    CLEO_RegisterOpcode(0x0F30, IMGUI_IS_ITEM_FOCUSED);
+    CLEO_RegisterOpcode(0x0F31, IMGUI_IS_ITEM_ACTIVATED);
+    CLEO_RegisterOpcode(0x0F32, IMGUI_IS_ITEM_DEACTIVATED);
+    CLEO_RegisterOpcode(0x0F33, IMGUI_IS_ITEM_ACTIVE);
+    CLEO_RegisterOpcode(0x0F34, IMGUI_IS_ITEM_CLICKED);
+    CLEO_RegisterOpcode(0x0F35, IMGUI_IS_WINDOW_HOVERED);
+    CLEO_RegisterOpcode(0x0F36, IMGUI_IS_WINDOW_FOCUSED);
+    CLEO_RegisterOpcode(0x0F37, IMGUI_RADIO_BUTTON);
+    CLEO_RegisterOpcode(0x0F38, IMGUI_COLLAPSING_HEADER);
+    CLEO_RegisterOpcode(0x0F39, IMGUI_PROGRESS_BAR);
+    CLEO_RegisterOpcode(0x0F3A, IMGUI_GET_WINDOW_POSY);
+    CLEO_RegisterOpcode(0x0F3B, IMGUI_GET_WINDOW_POSX);
+    CLEO_RegisterOpcode(0x0F3C, IMGUI_GET_WINDOW_WIDTH);
+    CLEO_RegisterOpcode(0x0F3D, IMGUI_GET_WINDOW_HEIGHT);
+    CLEO_RegisterOpcode(0x0F3E, IMGUI_SELECTABLE);
+    CLEO_RegisterOpcode(0x0F40, IMGUI_LOAD_TEXTURE);
+    CLEO_RegisterOpcode(0x0F41, IMGUI_IMAGE);
+    CLEO_RegisterOpcode(0x0F42, IMGUI_IMAGE_EX);
+    CLEO_RegisterOpcode(0x0F43, IMGUI_IMAGE_BUTTON);
+    CLEO_RegisterOpcode(0x0F44, IMGUI_IMAGE_BUTTON_EX);
+    CLEO_RegisterOpcode(0x0F46, IMGUI_INVISIBLE_BUTTON);
+    CLEO_RegisterOpcode(0x0F47, IMGUI_DRAWLIST_ADD_CIRCLE);
+    CLEO_RegisterOpcode(0x0F48, IMGUI_DRAWLIST_ADD_CIRCLE_FILLED);
+    CLEO_RegisterOpcode(0x0F49, IMGUI_DRAWLIST_ADD_RECT);
+    CLEO_RegisterOpcode(0x0F4A, IMGUI_DRAWLIST_ADD_RECT_FILLED);
+    CLEO_RegisterOpcode(0x0F4B, IMGUI_DRAWLIST_ADD_RECT_FILLED_MULTICOLOR);
+    CLEO_RegisterOpcode(0x0F4C, IMGUI_DRAWLIST_ADD_TEXT);
+    CLEO_RegisterOpcode(0x0F4D, IMGUI_DRAWLIST_ADD_TRIANGLE);
+    CLEO_RegisterOpcode(0x0F4E, IMGUI_DRAWLIST_ADD_TRIANGLE_FILLED);
+    CLEO_RegisterOpcode(0x0F4F, IMGUI_BEGIN_MAIN_MENU_BAR);
+    CLEO_RegisterOpcode(0x0F50, IMGUI_END_MAIN_MENU_BAR);
+    CLEO_RegisterOpcode(0x0F51, IMGUI_MENU_ITEM);
+    CLEO_RegisterOpcode(0x0F52, IMGUI_STYLE_COLORS_CLASSIC);
+    CLEO_RegisterOpcode(0x0F53, IMGUI_STYLE_COLORS_DARK);
+    CLEO_RegisterOpcode(0x0F54, IMGUI_STYLE_COLORS_DEFAULT);
+    CLEO_RegisterOpcode(0x0F55, IMGUI_STYLE_COLORS_LIGHT);
+    CLEO_RegisterOpcode(0x0F57, IMGUI_GET_STYLE);
+    CLEO_RegisterOpcode(0x0F58, IMGUI_SET_STYLE);
+    CLEO_RegisterOpcode(0x0F59, IMGUI_SET_STYLE_INT);
+    CLEO_RegisterOpcode(0x0F5A, IMGUI_GET_COLOR);
+    CLEO_RegisterOpcode(0x0F5B, IMGUI_SET_COLOR);
+    CLEO_RegisterOpcode(0x0F5C, IMGUI_PUSH_ITEM_WIDTH);
+    CLEO_RegisterOpcode(0x0F5D, IMGUI_POP_ITEM_WIDTH);
+    CLEO_RegisterOpcode(0x0F5E, IMGUI_PUSH_ITEM_FLAG);
+    CLEO_RegisterOpcode(0x0F5F, IMGUI_POP_ITEM_FLAG);
+    CLEO_RegisterOpcode(0x0F60, IMGUI_GET_WINDOW_CONTENT_REGION_WIDTH);
+    CLEO_RegisterOpcode(0x0F61, IMGUI_GET_FRAME_HEIGHT);
+    CLEO_RegisterOpcode(0x0F62, IMGUI_GET_FRAME_HEIGHT_WITH_SPACING);
+    CLEO_RegisterOpcode(0x0F63, IMGUI_GET_STYLE_INT);
 
     logger->Info("CLEO opcodes for ImGui registered.");
 }
