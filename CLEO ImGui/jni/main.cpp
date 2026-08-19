@@ -28,10 +28,10 @@ END_DEPLIST()
 #define READ_STRING(v, s) char v[s]; cleoaddon->ReadString(handle, v, s)
 #define READ_INT(name) int name = cleo->ReadParam(handle)->i
 #define READ_FLOAT(name) float name = cleo->ReadParam(handle)->f
-#define READ_INTPTR(name) int* name = &cleo->GetPointerToScriptVar(handle)->i
-#define READ_FLOATPTR(name) float* name = &cleo->GetPointerToScriptVar(handle)->f
-#define SET_INT(val) cleo->GetPointerToScriptVar(handle)->i = val
-#define SET_FLOAT(val) cleo->GetPointerToScriptVar(handle)->f = val
+#define READ_INT_PTR(name) int* name = &cleo->GetPointerToScriptVar(handle)->i
+#define READ_FLOAT_PTR(name) float* name = &cleo->GetPointerToScriptVar(handle)->f
+#define WRITE_INT(val) cleo->GetPointerToScriptVar(handle)->i = val
+#define WRITE_FLOAT(val) cleo->GetPointerToScriptVar(handle)->f = val
 #define RET_COMPARE(ret) cleoaddon->UpdateCompareFlag(handle, ret);
 
 // ── Macros para widgets con/sin cola ──────────────────────
@@ -272,7 +272,7 @@ CLEO_Fn(IMGUI_CHECKBOX)
 {
     READ_STRING(label, 128);
     READ_INT(flags);
-    READ_INTPTR(pVar);
+    READ_INT_PTR(pVar);
 
     APPLY_DEFERRED_COND();
 

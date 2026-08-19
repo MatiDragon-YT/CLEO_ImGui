@@ -1,4 +1,4 @@
-# CLEO ImGui v1.0.1
+# CLEO ImGui v1.1.0
 Project inspired by [CLEO ImGui](https://github.com/user-grinch/CLEOImGui) by User-Grinch, respecting the order of its opcodes.
 
 Created by: Matias A. Rossi (MatiDragon)
