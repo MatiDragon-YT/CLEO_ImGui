@@ -5,6 +5,7 @@
 #include <vector>
 #include <functional>
 #include <filesystem>
+#include <fstream>
 
 #include "main.h"
 #include "arial.h"
@@ -20,6 +21,8 @@ ISAUtils* sautils = nullptr;
 char szCLEOImGuiVer[64] { 0 };
 void NoneFunctionLogic(uintptr_t) { return; }
 
+#include "RW/rwcore.h" 
+
 MYMOD(net.matidragon.cleo_imgui, CLEO_ImGui, 1.2.0, MatiDragon)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY_VER(net.rusjj.cleolib, 2.0.1.10)
@@ -32,10 +35,10 @@ END_DEPLIST()
 
 // ── Macros para reducir código repetitivo ─────────────────
 #define READ_STRING(v, s) char v[s]; cleoaddon->ReadString(handle, v, s)
-#define READ_INT(name) int name = cleo->ReadParam(handle)->i
-#define READ_FLOAT(name) float name = cleo->ReadParam(handle)->f
-#define READ_INT_PTR(name) int* name = &cleo->GetPointerToScriptVar(handle)->i
-#define READ_FLOAT_PTR(name) float* name = &cleo->GetPointerToScriptVar(handle)->f
+#define READ_INT(__name) int __name = cleo->ReadParam(handle)->i
+#define READ_FLOAT(__name) float __name = cleo->ReadParam(handle)->f
+#define READ_INT_PTR(__name) int* __name = &cleo->GetPointerToScriptVar(handle)->i
+#define READ_FLOAT_PTR(__name) float* __name = &cleo->GetPointerToScriptVar(handle)->f
 #define WRITE_INT(val) cleo->GetPointerToScriptVar(handle)->i = val
 #define WRITE_FLOAT(val) cleo->GetPointerToScriptVar(handle)->f = val
 #define WRITE_STRING(val) cleoaddon->WriteString(handle, val);
@@ -77,6 +80,9 @@ static const ImWchar ranges[] = {
 uintptr_t pGameLib = 0;
 void* pGameHandle = nullptr;
 extern RwRaster* (*RwRasterRead)(const RwChar*);
+extern RwImage* (*RwImageRead)(const RwChar*);
+extern RwRaster* (*RwRasterSetFromImage)(RwRaster*, RwImage*);
+extern RwBool (*RwImageDestroy)(RwImage * image);
 bool bImGuiInitialized = false;
 
 RwReal* nearScreenZ;
@@ -524,14 +530,13 @@ CLEO_Fn(IMGUI_BEGIN_A)
         ImGui::Begin(windowName.c_str(), nullptr, flags);
     });
 }
-
+/*
 // 2202: imgui_begin
 CLEO_Fn(IMGUI_BEGIN_B)
 {
     READ_STRING(label, 128);
-    
-    READ_INT(flags);    // bool
-    READ_INT(e1);    // ImGuiWindowFlags
+    READ_INT(flags);    // ImGuiWindowFlags
+    READ_INT(e1);    // bool
     READ_INT(d1); //  ignorado de momento
     READ_INT(a1); //  ignorado de momento
     READ_INT(b1); //  ignorado de momento
@@ -544,7 +549,37 @@ CLEO_Fn(IMGUI_BEGIN_B)
     });
 
 }
+*/
+// 2202: imgui_begin
+// 2202: imgui_begin (sin state, usa variable de salida como estado)
+CLEO_Fn(IMGUI_BEGIN_B)
+{
+    READ_STRING(label, 128);
+    READ_INT(state); // not working 
+    READ_INT(noTitleBar);
+    READ_INT(noResize);
+    READ_INT(noMove);
+    READ_INT(autoResize);
+    READ_INT_PTR(pState);        // variable de salida/estado (al final)
 
+    std::string windowName = label;
+
+    g_drawQueue.push_back([windowName, noTitleBar, noResize, noMove, autoResize, pState]() {
+        // Leer estado inicial desde la variable
+        bool open = (*pState != 0);
+
+        ImGuiWindowFlags flags = 0;
+        if (noTitleBar) flags |= ImGuiWindowFlags_NoTitleBar;
+        if (noResize)   flags |= ImGuiWindowFlags_NoResize;
+        if (noMove)     flags |= ImGuiWindowFlags_NoMove;
+        if (autoResize) flags |= ImGuiWindowFlags_AlwaysAutoResize;
+
+        ImGui::Begin(windowName.c_str(), &open, flags);
+
+        // Actualizar la variable con el nuevo estado (por si cambió)
+        *pState = open ? 1 : 0;
+    });
+}
 // 0F02: imgui_end
 CLEO_Fn(IMGUI_END)
 {
@@ -1490,13 +1525,13 @@ CLEO_Fn(IMGUI_SELECTABLE_B)
     });
 }
 
-// 0F40 / 2238: imgui_load_image (robusta, con fallback y logging)
+// 0F40 / 2238: imgui_load_image (con búsqueda automática y std::ifstream)
 CLEO_Fn(IMGUI_LOAD_IMAGE)
 {
     READ_STRING(path, 256);
 
-    int imageId = 0;
-    if (path[0] != '\0') {
+    int imageId = -1;
+    if (path[0] != '\0' && sautils != nullptr) {
         std::string fullPath;
         std::string input = path;
         bool found = false;
@@ -1527,7 +1562,7 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
             found = true;
         }
 
-        // Si no se especificó prefijo, buscar en las carpetas automáticamente
+        // Si no se especificó prefijo, buscar en las carpetas
         if (!found) {
             std::vector<std::string> bases;
             if (cleo->GetCleoStorageDir()) bases.push_back(cleo->GetCleoStorageDir());
@@ -1537,19 +1572,21 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
 
             for (const auto& base : bases) {
                 std::string candidate = base + "/" + input;
-                FILE* testFile = fopen(candidate.c_str(), "rb");
-                if (testFile) {
-                    fclose(testFile);
+                std::ifstream testFile(candidate, std::ios::binary);
+                if (testFile.is_open()) {
+                    testFile.close();
                     fullPath = candidate;
                     found = true;
                     break;
+                } else {
+                    logger->Info("IMGUI_LOAD_IMAGE: not found at %s", candidate.c_str());
                 }
             }
         }
 
         if (!found || fullPath.empty()) {
             logger->Error("IMGUI_LOAD_IMAGE: path not found: %s", path);
-            WRITE_INT(0);
+            WRITE_INT(imageId);
             return;
         }
 
@@ -1565,37 +1602,41 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
 
         void* texture = nullptr;
 
-        // Intento 1: sautils
-        if (sautils) {
-            if (strstr(fullPath.c_str(), ".png") || strstr(fullPath.c_str(), ".PNG")) {
-                texture = sautils->LoadRwTextureFromPNG(fullPath.c_str());
-            } else if (strstr(fullPath.c_str(), ".bmp") || strstr(fullPath.c_str(), ".BMP")) {
-                texture = sautils->LoadRwTextureFromBMP(fullPath.c_str());
-            } else {
-                texture = sautils->LoadRwTextureFromBMP(fullPath.c_str());
-                if (!texture) texture = sautils->LoadRwTextureFromPNG(fullPath.c_str());
-            }
-            if (texture) logger->Info("IMGUI_LOAD_IMAGE: loaded via sautils");
+        // Intentar cargar con sautils según extensión
+        if (strstr(fullPath.c_str(), ".png") || strstr(fullPath.c_str(), ".PNG")) {
+            texture = sautils->LoadRwTextureFromPNG(fullPath.c_str());
+        } else if (strstr(fullPath.c_str(), ".bmp") || strstr(fullPath.c_str(), ".BMP")) {
+            texture = sautils->LoadRwTextureFromBMP(fullPath.c_str());
+        } else {
+            texture = sautils->LoadRwTextureFromBMP(fullPath.c_str());
+            if (!texture) texture = sautils->LoadRwTextureFromPNG(fullPath.c_str());
         }
-
-        // Intento 2: RwRasterRead (fallback)
-        if (!texture && RwRasterRead) {
-            RwRaster* raster = RwRasterRead(fullPath.c_str());
+        
+        // Intento 2: RenderWare directo (fallback)
+if (!texture) {
+    RwImage* image = RwImageRead(fullPath.c_str());
+    if (image) {
+        RwRaster* raster = RwRasterCreate(image->width, image->height, image->depth, 2);
+        if (raster) {
+            raster = RwRasterSetFromImage(raster, image);
             if (raster) {
                 texture = (void*)raster;
-                logger->Info("IMGUI_LOAD_IMAGE: loaded via RwRasterRead");
+                logger->Info("IMGUI_LOAD_IMAGE: loaded via RwImageRead/RwRasterSetFromImage");
             }
         }
+        RwImageDestroy(image);
+    }
+}
 
         if (texture) {
             imageId = AddImage(texture);
             g_imagePathToId[fullPath] = imageId;
             logger->Info("IMGUI_LOAD_IMAGE: new image id = %d", imageId);
         } else {
-            logger->Error("IMGUI_LOAD_IMAGE: all loading methods failed for %s", fullPath.c_str());
+            logger->Error("IMGUI_LOAD_IMAGE: sautils failed to load texture from %s", fullPath.c_str());
         }
     }
-    WRITE_INT(imageId);
+    WRITE_INT(imageId);   // devuelve -1 si no se cargó
 }
 
 // 0F41: imgui_image
@@ -2309,6 +2350,1169 @@ CLEO_Fn(IMGUI_IMAGE_RESET_COLOR)
     g_imageBorderColor = ImVec4(0.0f, 0.0f, 0.0f, 0.0f); // transparente por defecto
 }
 
+CLEO_Fn(IMGUI_TABS)
+{
+    READ_INT_PTR(pOut);
+    READ_STRING(label, 128);
+    READ_STRING(tabNames, 512);
+
+    std::string id = label;
+    std::string tabs = tabNames;
+
+    g_drawQueue.push_back([id, tabs, pOut]() {
+        int activeIndex = -1;
+
+        if (ImGui::BeginTabBar(id.c_str())) {
+            int idx = 0;
+            char* copy = new char[tabs.size() + 1];
+            strcpy(copy, tabs.c_str());
+            char* token = strtok(copy, ",");
+            while (token) {
+                if (ImGui::BeginTabItem(token)) {
+                    activeIndex = idx;
+                    ImGui::EndTabItem();
+                }
+                token = strtok(nullptr, ",");
+                idx++;
+            }
+            delete[] copy;
+            ImGui::EndTabBar();
+        }
+
+        if (pOut) *pOut = activeIndex;
+    });
+}
+CLEO_Fn(IMGUI_TEXT_CENTERED)
+{
+    READ_STRING(text, MAX_STR_LEN);
+    std::string t = text;
+
+    g_drawQueue.push_back([t]() {
+        float windowWidth = ImGui::GetWindowWidth();
+        float textWidth = ImGui::CalcTextSize(t.c_str()).x;
+        if (windowWidth > textWidth)
+            ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
+        ImGui::TextUnformatted(t.c_str());
+    });
+}
+CLEO_Fn(IMGUI_COMBO)
+{
+    READ_INT_PTR(pOut);
+    READ_STRING(label, 128);
+    READ_STRING(options, 512);
+    READ_INT(initialSelection);
+
+    std::string id = label;
+    std::string opts = options;
+
+    g_drawQueue.push_back([id, opts, initialSelection, pOut]() {
+        static std::map<std::string, int> selections;
+        static std::map<std::string, bool> initialized;
+
+        if (!initialized[id]) {
+            selections[id] = initialSelection;
+            initialized[id] = true;
+        }
+
+        // Separar opciones por comas
+        std::vector<std::string> items;
+        std::string current = "";
+        for (size_t i = 0; i <= opts.size(); ++i) {
+            if (i == opts.size() || opts[i] == ',') {
+                items.push_back(current);
+                current.clear();
+            } else {
+                current += opts[i];
+            }
+        }
+
+        int& selected = selections[id];
+        const char* preview = (selected >= 0 && selected < (int)items.size()) ? items[selected].c_str() : "";
+
+        if (ImGui::BeginCombo(id.c_str(), preview)) {
+            for (size_t i = 0; i < items.size(); ++i) {
+                bool isSelected = ((int)i == selected);
+                if (ImGui::Selectable(items[i].c_str(), isSelected)) {
+                    selected = (int)i;
+                }
+                if (isSelected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        if (pOut) *pOut = selected;
+    });
+}
+CLEO_Fn(IMGUI_ARROW_BUTTON)
+{
+    READ_STRING(label, 128);
+    READ_INT(dir);
+
+    APPLY_DEFERRED_COND();
+
+    std::string id = label;
+    g_drawQueue.push_back([id, dir, handle]() {
+        bool clicked = ImGui::ArrowButton(id.c_str(), dir);
+        PUSH_DEFERRED_BOOL(clicked);
+    });
+}
+CLEO_Fn(IMGUI_SET_ITEM_INT)
+{
+    READ_STRING(id, 128);
+    READ_INT(val);
+}
+CLEO_Fn(IMGUI_SET_ITEM_FLOAT)
+{
+    READ_STRING(id, 128);
+    READ_FLOAT(val);
+}
+CLEO_Fn(IMGUI_SET_ITEM_TEXT)
+{
+    READ_STRING(id, 128);
+    READ_STRING(val, 256);
+}
+CLEO_Fn(IMGUI_PUSH_STYLE_VAR)
+{
+    READ_INT(styleVar);
+    READ_FLOAT(val);
+
+    g_drawQueue.push_back([styleVar, val]() {
+        ImGui::PushStyleVar((ImGuiStyleVar)styleVar, val);
+    });
+}
+CLEO_Fn(IMGUI_PUSH_STYLE_VAR2)
+{
+    READ_INT(styleVar);
+    READ_FLOAT(x);
+    READ_FLOAT(y);
+
+    g_drawQueue.push_back([styleVar, x, y]() {
+        ImGui::PushStyleVar((ImGuiStyleVar)styleVar, ImVec2(x, y));
+    });
+}
+CLEO_Fn(IMGUI_PUSH_STYLE_COLOR)
+{
+    READ_INT(col);
+    READ_INT(r);
+    READ_INT(g);
+    READ_INT(b);
+    READ_INT(a);
+
+    g_drawQueue.push_back([col, r, g, b, a]() {
+        ImGui::PushStyleColor((ImGuiCol)col, ImVec4(r/255.0f, g/255.0f, b/255.0f, a/255.0f));
+    });
+}
+CLEO_Fn(IMGUI_POP_STYLE_VAR)
+{
+    READ_INT(count);
+    g_drawQueue.push_back([count]() {
+        ImGui::PopStyleVar(count);
+    });
+}
+CLEO_Fn(IMGUI_POP_STYLE_COLOR)
+{
+    READ_INT(count);
+    g_drawQueue.push_back([count]() {
+        ImGui::PopStyleColor(count);
+    });
+}
+CLEO_Fn(IMGUI_GET_FOREGROUND_DRAWLIST)
+{
+    int dl = (int)(uintptr_t)ImGui::GetForegroundDrawList();
+    WRITE_INT(dl);
+}
+CLEO_Fn(IMGUI_GET_BACKGROUND_DRAWLIST)
+{
+    int dl = (int)(uintptr_t)ImGui::GetBackgroundDrawList();
+    WRITE_INT(dl);
+}
+CLEO_Fn(IMGUI_DRAWLIST_ADD_LINE)
+{
+    READ_INT(drawList);
+    READ_FLOAT(x1);
+    READ_FLOAT(y1);
+    READ_FLOAT(x2);
+    READ_FLOAT(y2);
+    READ_INT(r);
+    READ_INT(g);
+    READ_INT(b);
+    READ_INT(a);
+    READ_FLOAT(thickness);
+
+    g_drawQueue.push_back([drawList, x1, y1, x2, y2, r, g, b, a, thickness]() {
+        ImDrawList* dl = nullptr;
+        switch (drawList) {
+            case 0: dl = ImGui::GetWindowDrawList(); break;
+            case 1: dl = ImGui::GetForegroundDrawList(); break;
+            case 2: dl = ImGui::GetBackgroundDrawList(); break;
+            default: dl = ImGui::GetWindowDrawList(); break;
+        }
+        if (dl) {
+            dl->AddLine(ImVec2(x1, y1), ImVec2(x2, y2), IM_COL32(r, g, b, a), thickness);
+        }
+    });
+}
+CLEO_Fn(IMGUI_SET_CURSOR_VISIBLE)
+{
+    READ_INT(show);
+    ImGui::GetIO().MouseDrawCursor = (show != 0);
+}
+CLEO_Fn(IMGUI_GET_WINDOW_SIZE)
+{
+    READ_FLOAT_PTR(pW);
+    READ_FLOAT_PTR(pH);
+    READ_STRING(uniqueId, 128);   // se ignora
+
+    g_drawQueue.push_back([pW, pH]() {
+        if (pW) *pW = ImGui::GetWindowWidth();
+        if (pH) *pH = ImGui::GetWindowHeight();
+    });
+}
+CLEO_Fn(IMGUI_CALC_TEXT_SIZE)
+{
+    READ_FLOAT_PTR(pW);
+    READ_FLOAT_PTR(pH);
+    READ_STRING(text, MAX_STR_LEN);
+
+    std::string t = text;
+    g_drawQueue.push_back([t, pW, pH]() {
+        ImVec2 size = ImGui::CalcTextSize(t.c_str());
+        if (pW) *pW = size.x;
+        if (pH) *pH = size.y;
+    });
+}
+CLEO_Fn(IMGUI_GET_SCALING_SIZE)
+{
+    READ_FLOAT_PTR(pX);
+    READ_FLOAT_PTR(pY);
+    READ_STRING(uniqueId, 128);
+    READ_INT(count);
+    READ_INT(spacing);
+
+    // Se ignoran count y spacing; devuelve los factores de escala
+    if (pX) *pX = flScaleX;
+    if (pY) *pY = flScaleY;
+}
+CLEO_Fn(IMGUI_SET_NEXT_WINDOW_TRANSPARENCY)
+{
+    READ_FLOAT(alpha);
+    g_drawQueue.push_back([alpha]() {
+        ImGui::SetNextWindowBgAlpha(alpha);
+    });
+}
+CLEO_Fn(IMGUI_SET_MESSAGE)
+{
+    READ_STRING(text, MAX_STR_LEN);
+    std::string msg = text;
+
+    g_drawQueue.push_back([msg]() {
+        ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Once);
+        ImGui::SetNextWindowBgAlpha(0.8f);
+        if (ImGui::Begin("##IMGUI_MESSAGE", nullptr,
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+            ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings)) {
+            ImGui::TextUnformatted(msg.c_str());
+        }
+        ImGui::End();
+    });
+}
+CLEO_Fn(IMGUI_GET_DISPLAY_SIZE)
+{
+    READ_FLOAT_PTR(pW);
+    READ_FLOAT_PTR(pH);
+
+    if (pW) *pW = (float)nDisplayX;
+    if (pH) *pH = (float)nDisplayY;
+}
+CLEO_Fn(IMGUI_GET_WINDOW_DRAWLIST)
+{
+    int dl = (int)(uintptr_t)ImGui::GetWindowDrawList();
+    WRITE_INT(dl);
+}
+
+
+CLEO_Fn(IMGUI_INDENT)
+{
+    READ_FLOAT(indent_w);
+    g_drawQueue.push_back([indent_w]() {
+        if (indent_w <= 0.0f) ImGui::Indent();
+        else ImGui::Indent(indent_w);
+    });
+}
+CLEO_Fn(IMGUI_UNINDENT)
+{
+    READ_FLOAT(indent_w);
+    g_drawQueue.push_back([indent_w]() {
+        if (indent_w <= 0.0f) ImGui::Unindent();
+        else ImGui::Unindent(indent_w);
+    });
+}
+CLEO_Fn(IMGUI_BEGIN_GROUP)
+{
+    g_drawQueue.push_back([]() { ImGui::BeginGroup(); });
+}
+CLEO_Fn(IMGUI_END_GROUP)
+{
+    g_drawQueue.push_back([]() { ImGui::EndGroup(); });
+}
+CLEO_Fn(IMGUI_ALIGN_TEXT_TO_FRAME_PADDING)
+{
+    g_drawQueue.push_back([]() { ImGui::AlignTextToFramePadding(); });
+}
+CLEO_Fn(IMGUI_GET_TEXT_LINE_HEIGHT)
+{
+    READ_FLOAT_PTR(pOut);
+    g_drawQueue.push_back([pOut]() {
+        *pOut = ImGui::GetTextLineHeight();
+    });
+}
+CLEO_Fn(IMGUI_GET_TEXT_LINE_HEIGHT_WITH_SPACING)
+{
+    READ_FLOAT_PTR(pOut);
+    g_drawQueue.push_back([pOut]() {
+        *pOut = ImGui::GetTextLineHeightWithSpacing();
+    });
+}
+CLEO_Fn(IMGUI_SMALL_BUTTON)
+{
+    READ_STRING(label, 128);
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, handle]() {
+        bool clicked = ImGui::SmallButton(lbl.c_str());
+        PUSH_DEFERRED_BOOL(clicked);
+    });
+}
+CLEO_Fn(IMGUI_CHECKBOX_FLAGS_INT)
+{
+    READ_STRING(label, 128);
+    READ_INT_PTR(pFlags);
+    READ_INT(flagValue);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, pFlags, flagValue, handle]() {
+        bool changed = ImGui::CheckboxFlags(lbl.c_str(), pFlags, flagValue);
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_RADIO_BUTTON_ACTIVE)
+{
+    READ_STRING(label, 128);
+    READ_INT(active);       // 0 o 1
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, active, handle]() {
+        bool clicked = ImGui::RadioButton(lbl.c_str(), active != 0);
+        PUSH_DEFERRED_BOOL(clicked);
+    });
+}
+CLEO_Fn(IMGUI_INPUT_INT_X)
+{
+    READ_STRING(label, 128);
+    READ_INT(count); if (count < 1) count = 1; if (count > 4) count = 4;
+    READ_INT_PTR(p0);
+    READ_INT_PTR(p1);
+    READ_INT_PTR(p2);
+    READ_INT_PTR(p3);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, count, p0, p1, p2, p3, handle]() {
+        int values[4] = {0,0,0,0};
+        values[0] = *p0; values[1] = *p1; values[2] = *p2; values[3] = *p3;
+
+        bool changed = false;
+        switch (count) {
+            case 1: changed = ImGui::InputInt(lbl.c_str(), &values[0], 1, 100, 0); break;
+            case 2: changed = ImGui::InputInt2(lbl.c_str(), values, 0); break;
+            case 3: changed = ImGui::InputInt3(lbl.c_str(), values, 0); break;
+            case 4: changed = ImGui::InputInt4(lbl.c_str(), values, 0); break;
+        }
+
+        *p0 = values[0]; *p1 = values[1]; *p2 = values[2]; *p3 = values[3];
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_INPUT_FLOAT_X)
+{
+    READ_STRING(label, 128);
+    READ_INT(count); if (count < 1) count = 1; if (count > 4) count = 4;
+    READ_FLOAT_PTR(p0);
+    READ_FLOAT_PTR(p1);
+    READ_FLOAT_PTR(p2);
+    READ_FLOAT_PTR(p3);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, count, p0, p1, p2, p3, handle]() {
+        float values[4] = {0.0f,0.0f,0.0f,0.0f};
+        values[0] = *p0; values[1] = *p1; values[2] = *p2; values[3] = *p3;
+
+        bool changed = false;
+        switch (count) {
+            case 1: changed = ImGui::InputFloat(lbl.c_str(), &values[0], 0.0f, 0.0f, "%.3f", 0); break;
+            case 2: changed = ImGui::InputFloat2(lbl.c_str(), values, "%.3f", 0); break;
+            case 3: changed = ImGui::InputFloat3(lbl.c_str(), values, "%.3f", 0); break;
+            case 4: changed = ImGui::InputFloat4(lbl.c_str(), values, "%.3f", 0); break;
+        }
+
+        *p0 = values[0]; *p1 = values[1]; *p2 = values[2]; *p3 = values[3];
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_DRAG_INT)
+{
+    READ_STRING(label, 128);
+    READ_INT_PTR(pVar);
+    READ_FLOAT(speed);
+    READ_INT(minVal);
+    READ_INT(maxVal);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, pVar, speed, minVal, maxVal, handle]() {
+        bool changed = ImGui::DragInt(lbl.c_str(), pVar, speed, minVal, maxVal, "%d", 0);
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_DRAG_INT_X)
+{
+    READ_STRING(label, 128);
+    READ_INT(count); if (count < 1) count = 1; if (count > 4) count = 4;
+    READ_FLOAT(speed);
+    READ_INT(minVal); READ_INT(maxVal);
+    READ_INT_PTR(p0);
+    READ_INT_PTR(p1);
+    READ_INT_PTR(p2);
+    READ_INT_PTR(p3);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, count, speed, minVal, maxVal, p0, p1, p2, p3, handle]() {
+        int values[4] = {0,0,0,0};
+        values[0] = *p0; values[1] = *p1; values[2] = *p2; values[3] = *p3;
+
+        bool changed = false;
+        switch (count) {
+            case 1: changed = ImGui::DragInt(lbl.c_str(), &values[0], speed, minVal, maxVal, "%d", 0); break;
+            case 2: changed = ImGui::DragInt2(lbl.c_str(), values, speed, minVal, maxVal, "%d", 0); break;
+            case 3: changed = ImGui::DragInt3(lbl.c_str(), values, speed, minVal, maxVal, "%d", 0); break;
+            case 4: changed = ImGui::DragInt4(lbl.c_str(), values, speed, minVal, maxVal, "%d", 0); break;
+        }
+
+        *p0 = values[0]; *p1 = values[1]; *p2 = values[2]; *p3 = values[3];
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_DRAG_FLOAT)
+{
+    READ_STRING(label, 128);
+    READ_FLOAT_PTR(pVar);
+    READ_FLOAT(speed);
+    READ_FLOAT(minVal);
+    READ_FLOAT(maxVal);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, pVar, speed, minVal, maxVal, handle]() {
+        bool changed = ImGui::DragFloat(lbl.c_str(), pVar, speed, minVal, maxVal, "%.3f", 0);
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_DRAG_FLOAT_X)
+{
+    READ_STRING(label, 128);
+    READ_INT(count); if (count < 1) count = 1; if (count > 4) count = 4;
+    READ_FLOAT(speed);
+    READ_FLOAT(minVal); READ_FLOAT(maxVal);
+    READ_FLOAT_PTR(p0);
+    READ_FLOAT_PTR(p1);
+    READ_FLOAT_PTR(p2);
+    READ_FLOAT_PTR(p3);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, count, speed, minVal, maxVal, p0, p1, p2, p3, handle]() {
+        float values[4] = {0.0f,0.0f,0.0f,0.0f};
+        values[0] = *p0; values[1] = *p1; values[2] = *p2; values[3] = *p3;
+
+        bool changed = false;
+        switch (count) {
+            case 1: changed = ImGui::DragFloat(lbl.c_str(), &values[0], speed, minVal, maxVal, "%.3f", 0); break;
+            case 2: changed = ImGui::DragFloat2(lbl.c_str(), values, speed, minVal, maxVal, "%.3f", 0); break;
+            case 3: changed = ImGui::DragFloat3(lbl.c_str(), values, speed, minVal, maxVal, "%.3f", 0); break;
+            case 4: changed = ImGui::DragFloat4(lbl.c_str(), values, speed, minVal, maxVal, "%.3f", 0); break;
+        }
+
+        *p0 = values[0]; *p1 = values[1]; *p2 = values[2]; *p3 = values[3];
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_SLIDER_INT_X)
+{
+    READ_STRING(label, 128);
+    READ_INT(count); if (count < 1) count = 1; if (count > 4) count = 4;
+    READ_INT(minVal); READ_INT(maxVal);
+    READ_INT_PTR(p0);
+    READ_INT_PTR(p1);
+    READ_INT_PTR(p2);
+    READ_INT_PTR(p3);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, count, minVal, maxVal, p0, p1, p2, p3, handle]() {
+        int values[4] = {0,0,0,0};
+        values[0] = *p0; values[1] = *p1; values[2] = *p2; values[3] = *p3;
+
+        bool changed = false;
+        switch (count) {
+            case 1: changed = ImGui::SliderInt(lbl.c_str(), &values[0], minVal, maxVal, "%d", 0); break;
+            case 2: changed = ImGui::SliderInt2(lbl.c_str(), values, minVal, maxVal, "%d", 0); break;
+            case 3: changed = ImGui::SliderInt3(lbl.c_str(), values, minVal, maxVal, "%d", 0); break;
+            case 4: changed = ImGui::SliderInt4(lbl.c_str(), values, minVal, maxVal, "%d", 0); break;
+        }
+
+        *p0 = values[0]; *p1 = values[1]; *p2 = values[2]; *p3 = values[3];
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_SLIDER_FLOAT_X)
+{
+    READ_STRING(label, 128);
+    READ_INT(count); if (count < 1) count = 1; if (count > 4) count = 4;
+    READ_FLOAT(minVal); READ_FLOAT(maxVal);
+    READ_FLOAT_PTR(p0);
+    READ_FLOAT_PTR(p1);
+    READ_FLOAT_PTR(p2);
+    READ_FLOAT_PTR(p3);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, count, minVal, maxVal, p0, p1, p2, p3, handle]() {
+        float values[4] = {0.0f,0.0f,0.0f,0.0f};
+        values[0] = *p0; values[1] = *p1; values[2] = *p2; values[3] = *p3;
+
+        bool changed = false;
+        switch (count) {
+            case 1: changed = ImGui::SliderFloat(lbl.c_str(), &values[0], minVal, maxVal, "%.3f", 0); break;
+            case 2: changed = ImGui::SliderFloat2(lbl.c_str(), values, minVal, maxVal, "%.3f", 0); break;
+            case 3: changed = ImGui::SliderFloat3(lbl.c_str(), values, minVal, maxVal, "%.3f", 0); break;
+            case 4: changed = ImGui::SliderFloat4(lbl.c_str(), values, minVal, maxVal, "%.3f", 0); break;
+        }
+
+        *p0 = values[0]; *p1 = values[1]; *p2 = values[2]; *p3 = values[3];
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_SLIDER_ANGLE)
+{
+    READ_STRING(label, 128);
+    READ_FLOAT_PTR(pAngleRad);
+    READ_FLOAT(degMin);
+    READ_FLOAT(degMax);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, pAngleRad, degMin, degMax, handle]() {
+        bool changed = ImGui::SliderAngle(lbl.c_str(), pAngleRad, degMin, degMax, "%.0f deg", 0);
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_VALUE_BOOL)
+{
+    READ_STRING(prefix, 128);
+    READ_INT(value);
+    std::string p = prefix;
+    g_drawQueue.push_back([p, value]() {
+        ImGui::Value(p.c_str(), value != 0);
+    });
+}
+CLEO_Fn(IMGUI_VALUE_INT)
+{
+    READ_STRING(prefix, 128);
+    READ_INT(value);
+    std::string p = prefix;
+    g_drawQueue.push_back([p, value]() {
+        ImGui::Value(p.c_str(), value);
+    });
+}
+CLEO_Fn(IMGUI_VALUE_FLOAT)
+{
+    READ_STRING(prefix, 128);
+    READ_FLOAT(value);
+    std::string p = prefix;
+    g_drawQueue.push_back([p, value]() {
+        ImGui::Value(p.c_str(), value, "%.3f");
+    });
+}
+
+// 2308: imgui_tree_node
+CLEO_Fn(IMGUI_TREE_NODE)
+{
+    READ_STRING(label, 128);
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, handle]() {
+        bool open = ImGui::TreeNode(lbl.c_str());
+        PUSH_DEFERRED_BOOL(open);
+    });
+}
+
+// 2309: imgui_tree_node_ex
+CLEO_Fn(IMGUI_TREE_NODE_EX)
+{
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, flags, handle]() {
+        bool open = ImGui::TreeNodeEx(lbl.c_str(), flags);
+        PUSH_DEFERRED_BOOL(open);
+    });
+}
+
+// 230A: imgui_tree_push
+CLEO_Fn(IMGUI_TREE_PUSH)
+{
+    READ_STRING(str_id, 128);
+    std::string id = str_id;
+    g_drawQueue.push_back([id]() {
+        ImGui::TreePush(id.c_str());
+    });
+}
+
+// 230B: imgui_tree_pop
+CLEO_Fn(IMGUI_TREE_POP)
+{
+    g_drawQueue.push_back([]() { ImGui::TreePop(); });
+}
+
+// 230C: imgui_collapsing_header_visible (versión con bool* p_visible)
+CLEO_Fn(IMGUI_COLLAPSING_HEADER_EX)
+{
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    READ_INT_PTR(pVisible);
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, flags, pVisible, handle]() {
+        bool visible = (*pVisible != 0);
+        bool open = ImGui::CollapsingHeader(lbl.c_str(), &visible, flags);
+        *pVisible = visible ? 1 : 0;
+        PUSH_DEFERRED_BOOL(open);
+    });
+}
+
+// 230D: imgui_set_next_item_open
+CLEO_Fn(IMGUI_SET_NEXT_ITEM_OPEN)
+{
+    READ_INT(isOpen);
+    READ_INT(cond);
+    g_drawQueue.push_back([isOpen, cond]() {
+        ImGui::SetNextItemOpen(isOpen != 0, cond);
+    });
+}
+// 230E: imgui_open_popup
+CLEO_Fn(IMGUI_OPEN_POPUP)
+{
+    READ_STRING(str_id, 128);
+    READ_INT(flags);
+    std::string id = str_id;
+    g_drawQueue.push_back([id, flags]() {
+        ImGui::OpenPopup(id.c_str(), flags);
+    });
+}
+
+// 230F: imgui_begin_popup
+CLEO_Fn(IMGUI_BEGIN_POPUP)
+{
+    READ_STRING(str_id, 128);
+    READ_INT(flags);
+    APPLY_DEFERRED_COND();
+
+    std::string id = str_id;
+    g_drawQueue.push_back([id, flags, handle]() {
+        bool opened = ImGui::BeginPopup(id.c_str(), flags);
+        PUSH_DEFERRED_BOOL(opened);
+    });
+}
+
+// 2310: imgui_end_popup
+CLEO_Fn(IMGUI_END_POPUP)
+{
+    g_drawQueue.push_back([]() { ImGui::EndPopup(); });
+}
+
+// 2311: imgui_close_current_popup
+CLEO_Fn(IMGUI_CLOSE_CURRENT_POPUP)
+{
+    g_drawQueue.push_back([]() { ImGui::CloseCurrentPopup(); });
+}
+
+// 2312: imgui_open_popup_on_item_click
+CLEO_Fn(IMGUI_OPEN_POPUP_ON_ITEM_CLICK)
+{
+    READ_STRING(str_id, 128);
+    READ_INT(flags);
+    std::string id = str_id;
+    g_drawQueue.push_back([id, flags]() {
+        ImGui::OpenPopupOnItemClick(id.c_str(), flags);
+    });
+}
+
+// 2313: imgui_begin_popup_context_item
+CLEO_Fn(IMGUI_BEGIN_POPUP_CONTEXT_ITEM)
+{
+    READ_STRING(str_id, 128);
+    READ_INT(flags);
+    APPLY_DEFERRED_COND();
+
+    std::string id = str_id;
+    g_drawQueue.push_back([id, flags, handle]() {
+        bool opened = ImGui::BeginPopupContextItem(id.c_str(), flags);
+        PUSH_DEFERRED_BOOL(opened);
+    });
+}
+
+// 2314: imgui_begin_popup_context_window
+CLEO_Fn(IMGUI_BEGIN_POPUP_CONTEXT_WINDOW)
+{
+    READ_STRING(str_id, 128);
+    READ_INT(flags);
+    APPLY_DEFERRED_COND();
+
+    std::string id = str_id;
+    g_drawQueue.push_back([id, flags, handle]() {
+        bool opened = ImGui::BeginPopupContextWindow(id.c_str(), flags);
+        PUSH_DEFERRED_BOOL(opened);
+    });
+}
+
+// 2315: imgui_begin_popup_context_void
+CLEO_Fn(IMGUI_BEGIN_POPUP_CONTEXT_VOID)
+{
+    READ_STRING(str_id, 128);
+    READ_INT(flags);
+    APPLY_DEFERRED_COND();
+
+    std::string id = str_id;
+    g_drawQueue.push_back([id, flags, handle]() {
+        bool opened = ImGui::BeginPopupContextVoid(id.c_str(), flags);
+        PUSH_DEFERRED_BOOL(opened);
+    });
+}
+
+// 2316: imgui_is_popup_open (directo)
+CLEO_Fn(IMGUI_IS_POPUP_OPEN)
+{
+    READ_STRING(str_id, 128);
+    READ_INT(flags);
+
+    bool ret = ImGui::IsPopupOpen(str_id, flags);
+    RET_COMPARE(ret);
+}
+// 2317: imgui_begin_tab_bar
+CLEO_Fn(IMGUI_BEGIN_TAB_BAR)
+{
+    READ_STRING(str_id, 128);
+    READ_INT(flags);
+    APPLY_DEFERRED_COND();
+
+    std::string id = str_id;
+    g_drawQueue.push_back([id, flags, handle]() {
+        bool opened = ImGui::BeginTabBar(id.c_str(), flags);
+        PUSH_DEFERRED_BOOL(opened);
+    });
+}
+
+// 2318: imgui_end_tab_bar
+CLEO_Fn(IMGUI_END_TAB_BAR)
+{
+    g_drawQueue.push_back([]() { ImGui::EndTabBar(); });
+}
+
+// 2319: imgui_begin_tab_item
+CLEO_Fn(IMGUI_BEGIN_TAB_ITEM)
+{
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, flags, handle]() {
+        bool opened = ImGui::BeginTabItem(lbl.c_str(), nullptr, flags);
+        PUSH_DEFERRED_BOOL(opened);
+    });
+}
+
+// 231A: imgui_end_tab_item
+CLEO_Fn(IMGUI_END_TAB_ITEM)
+{
+    g_drawQueue.push_back([]() { ImGui::EndTabItem(); });
+}
+
+// 231B: imgui_tab_item_button
+CLEO_Fn(IMGUI_TAB_ITEM_BUTTON)
+{
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, flags, handle]() {
+        bool clicked = ImGui::TabItemButton(lbl.c_str(), flags);
+        PUSH_DEFERRED_BOOL(clicked);
+    });
+}
+
+// 231C: imgui_set_tab_item_closed
+CLEO_Fn(IMGUI_SET_TAB_ITEM_CLOSED)
+{
+    READ_STRING(tab_label, 128);
+    std::string lbl = tab_label;
+    g_drawQueue.push_back([lbl]() {
+        ImGui::SetTabItemClosed(lbl.c_str());
+    });
+}
+// 231D: imgui_begin_table
+CLEO_Fn(IMGUI_BEGIN_TABLE)
+{
+    READ_STRING(str_id, 128);
+    READ_INT(column);
+    READ_INT(flags);
+    READ_FLOAT(outer_size_x);
+    READ_FLOAT(outer_size_y);
+    READ_FLOAT(inner_width);
+    APPLY_DEFERRED_COND();
+
+    std::string id = str_id;
+    g_drawQueue.push_back([id, column, flags, outer_size_x, outer_size_y, inner_width, handle]() {
+        bool opened = ImGui::BeginTable(id.c_str(), column, flags, ImVec2(outer_size_x, outer_size_y), inner_width);
+        PUSH_DEFERRED_BOOL(opened);
+    });
+}
+
+// 231E: imgui_end_table
+CLEO_Fn(IMGUI_END_TABLE)
+{
+    g_drawQueue.push_back([]() { ImGui::EndTable(); });
+}
+
+// 231F: imgui_table_next_row
+CLEO_Fn(IMGUI_TABLE_NEXT_ROW)
+{
+    READ_INT(row_flags);
+    READ_FLOAT(min_row_height);
+    g_drawQueue.push_back([row_flags, min_row_height]() {
+        ImGui::TableNextRow(row_flags, min_row_height);
+    });
+}
+
+// 2320: imgui_table_next_column
+CLEO_Fn(IMGUI_TABLE_NEXT_COLUMN)
+{
+    APPLY_DEFERRED_COND();
+    g_drawQueue.push_back([handle]() {
+        bool visible = ImGui::TableNextColumn();
+        PUSH_DEFERRED_BOOL(visible);
+    });
+}
+
+// 2321: imgui_table_set_column_index
+CLEO_Fn(IMGUI_TABLE_SET_COLUMN_INDEX)
+{
+    READ_INT(column_n);
+    APPLY_DEFERRED_COND();
+    g_drawQueue.push_back([column_n, handle]() {
+        bool ok = ImGui::TableSetColumnIndex(column_n);
+        PUSH_DEFERRED_BOOL(ok);
+    });
+}
+
+// 2322: imgui_table_setup_column
+CLEO_Fn(IMGUI_TABLE_SETUP_COLUMN)
+{
+    READ_STRING(label, 128);
+    READ_INT(flags);
+    READ_FLOAT(init_width_or_weight);
+    READ_INT(user_id);
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, flags, init_width_or_weight, user_id]() {
+        ImGui::TableSetupColumn(lbl.c_str(), flags, init_width_or_weight, user_id);
+    });
+}
+
+// 2323: imgui_table_setup_scroll_freeze
+CLEO_Fn(IMGUI_TABLE_SETUP_SCROLL_FREEZE)
+{
+    READ_INT(cols);
+    READ_INT(rows);
+    g_drawQueue.push_back([cols, rows]() {
+        ImGui::TableSetupScrollFreeze(cols, rows);
+    });
+}
+
+// 2324: imgui_table_headers_row
+CLEO_Fn(IMGUI_TABLE_HEADERS_ROW)
+{
+    g_drawQueue.push_back([]() { ImGui::TableHeadersRow(); });
+}
+
+// 2325: imgui_table_header
+CLEO_Fn(IMGUI_TABLE_HEADER)
+{
+    READ_STRING(label, 128);
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl]() {
+        ImGui::TableHeader(lbl.c_str());
+    });
+}
+
+// 2326: imgui_table_get_column_count
+CLEO_Fn(IMGUI_TABLE_GET_COLUMN_COUNT)
+{
+    READ_INT_PTR(pOut);
+    g_drawQueue.push_back([pOut]() {
+        *pOut = ImGui::TableGetColumnCount();
+    });
+}
+
+// 2327: imgui_table_get_column_index
+CLEO_Fn(IMGUI_TABLE_GET_COLUMN_INDEX)
+{
+    READ_INT_PTR(pOut);
+    g_drawQueue.push_back([pOut]() {
+        *pOut = ImGui::TableGetColumnIndex();
+    });
+}
+
+// 2328: imgui_table_get_row_index
+CLEO_Fn(IMGUI_TABLE_GET_ROW_INDEX)
+{
+    READ_INT_PTR(pOut);
+    g_drawQueue.push_back([pOut]() {
+        *pOut = ImGui::TableGetRowIndex();
+    });
+}
+
+// 2329: imgui_table_get_column_name
+CLEO_Fn(IMGUI_TABLE_GET_COLUMN_NAME)
+{
+    READ_INT(column_n);
+    g_drawQueue.push_back([column_n, handle]() {
+        const char* name = ImGui::TableGetColumnName(column_n);
+        cleoaddon->WriteString(handle, name ? name : "");
+    });
+}
+
+// 232A: imgui_table_get_column_flags
+CLEO_Fn(IMGUI_TABLE_GET_COLUMN_FLAGS)
+{
+    READ_INT(column_n);
+    READ_INT_PTR(pOut);
+    g_drawQueue.push_back([column_n, pOut]() {
+        *pOut = ImGui::TableGetColumnFlags(column_n);
+    });
+}
+
+// 232B: imgui_table_set_column_enabled
+CLEO_Fn(IMGUI_TABLE_SET_COLUMN_ENABLED)
+{
+    READ_INT(column_n);
+    READ_INT(enabled);
+    g_drawQueue.push_back([column_n, enabled]() {
+        ImGui::TableSetColumnEnabled(column_n, enabled != 0);
+    });
+}
+
+// 232C: imgui_table_set_bg_color
+CLEO_Fn(IMGUI_TABLE_SET_BG_COLOR)
+{
+    READ_INT(target);
+    READ_INT(color);
+    READ_INT(column_n);
+    g_drawQueue.push_back([target, color, column_n]() {
+        ImGui::TableSetBgColor(target, color, column_n);
+    });
+}
+
+CLEO_Fn(IMGUI_LABEL_TEXT)
+{
+    READ_STRING(label, 128);
+    READ_STRING(text, 256);
+    std::string lbl = label;
+    std::string txt = text;
+    g_drawQueue.push_back([lbl, txt]() {
+        ImGui::LabelText(lbl.c_str(), "%s", txt.c_str());
+    });
+}
+CLEO_Fn(IMGUI_BEGIN_TOOLTIP)
+{
+    g_drawQueue.push_back([]() {
+        ImGui::BeginTooltip();
+    });
+}
+CLEO_Fn(IMGUI_END_TOOLTIP)
+{
+    g_drawQueue.push_back([]() {
+        ImGui::EndTooltip();
+    });
+}
+CLEO_Fn(IMGUI_BEGIN_MENU)
+{
+    READ_STRING(label, 128);
+    READ_INT(enabled); // 1 = habilitado, 0 = deshabilitado
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, enabled]() {
+        ImGui::BeginMenu(lbl.c_str(), enabled != 0);
+    });
+}
+CLEO_Fn(IMGUI_END_MENU)
+{
+    g_drawQueue.push_back([]() {
+        ImGui::EndMenu();
+    });
+}
+CLEO_Fn(IMGUI_MENU_ITEM_EX)
+{
+    READ_STRING(label, 128);
+    READ_STRING(shortcut, 64);
+    READ_INT(selected);   // 0/1
+    READ_INT(enabled);    // 0/1
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    std::string scut = shortcut;
+    g_drawQueue.push_back([lbl, scut, selected, enabled, handle]() {
+        bool activated = ImGui::MenuItem(lbl.c_str(), scut.c_str(), selected != 0, enabled != 0);
+        PUSH_DEFERRED_BOOL(activated);
+    });
+}
+CLEO_Fn(IMGUI_BEGIN_LISTBOX)
+{
+    READ_STRING(label, 128);
+    READ_FLOAT(w);
+    READ_FLOAT(h);
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, w, h]() {
+        ImGui::BeginListBox(lbl.c_str(), ImVec2(w, h));
+    });
+}
+CLEO_Fn(IMGUI_END_LISTBOX)
+{
+    g_drawQueue.push_back([]() {
+        ImGui::EndListBox();
+    });
+}
+CLEO_Fn(IMGUI_LISTBOX)
+{
+    READ_STRING(label, 128);
+    READ_STRING(itemsStr, 1024);
+    READ_INT_PTR(pCurrent);
+    READ_INT(heightItems);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    std::string opts = itemsStr;
+    g_drawQueue.push_back([lbl, opts, pCurrent, heightItems, handle]() {
+        // Separar items por comas
+        std::vector<std::string> items;
+        std::string cur;
+        for (size_t i = 0; i <= opts.size(); ++i) {
+            if (i == opts.size() || opts[i] == ',') {
+                items.push_back(cur);
+                cur.clear();
+            } else {
+                cur += opts[i];
+            }
+        }
+        int& current = *pCurrent;
+        bool changed = false;
+        if (ImGui::BeginListBox(lbl.c_str(), ImVec2(0, 0))) {
+            for (size_t i = 0; i < items.size(); ++i) {
+                bool isSelected = (current == (int)i);
+                if (ImGui::Selectable(items[i].c_str(), isSelected)) {
+                    current = (int)i;
+                    changed = true;
+                }
+                if (isSelected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndListBox();
+        }
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+CLEO_Fn(IMGUI_PLOT_LINES)
+{
+    READ_STRING(label, 128);
+    int valuesAddr = cleo->ReadParam(handle)->i;   // dirección del array de floats
+    READ_INT(count);
+    READ_STRING(overlay, 64);
+    READ_FLOAT(scaleMin);
+    READ_FLOAT(scaleMax);
+    READ_FLOAT(graphW);
+    READ_FLOAT(graphH);
+
+    std::string lbl = label;
+    std::string ov = overlay;
+    g_drawQueue.push_back([lbl, valuesAddr, count, ov, scaleMin, scaleMax, graphW, graphH]() {
+        const float* values = reinterpret_cast<const float*>(valuesAddr);
+        ImGui::PlotLines(lbl.c_str(), values, count, 0, ov.empty() ? nullptr : ov.c_str(),
+                         scaleMin, scaleMax, ImVec2(graphW, graphH));
+    });
+}
+CLEO_Fn(IMGUI_PLOT_HISTOGRAM)
+{
+    READ_STRING(label, 128);
+    int valuesAddr = cleo->ReadParam(handle)->i;   // dirección del array de floats
+    READ_INT(count);
+    READ_STRING(overlay, 64);
+    READ_FLOAT(scaleMin);
+    READ_FLOAT(scaleMax);
+    READ_FLOAT(graphW);
+    READ_FLOAT(graphH);
+
+    std::string lbl = label;
+    std::string ov = overlay;
+    g_drawQueue.push_back([lbl, valuesAddr, count, ov, scaleMin, scaleMax, graphW, graphH]() {
+        const float* values = reinterpret_cast<const float*>(valuesAddr);
+        ImGui::PlotHistogram(lbl.c_str(), values, count, 0, ov.empty() ? nullptr : ov.c_str(),
+                             scaleMin, scaleMax, ImVec2(graphW, graphH));
+    });
+}
+CLEO_Fn(IMGUI_GET_TIME)
+{
+    READ_FLOAT_PTR(pOut);
+    if (pOut) *pOut = (float)ImGui::GetTime();
+}
+CLEO_Fn(IMGUI_GET_FRAME_COUNT)
+{
+    READ_INT_PTR(pOut);
+    if (pOut) *pOut = ImGui::GetFrameCount();
+}
+
 // ---------- Entradas del módulo ----------
 extern "C" void OnModPreLoad()
 {
@@ -2459,27 +3663,27 @@ CLEO_RegisterOpcode(0x2204, IMGUI_BEGIN_MAIN_MENU_BAR_B);
 CLEO_RegisterOpcode(0x2205, IMGUI_END_MAIN_MENU_BAR);
 CLEO_RegisterOpcode(0x2206, IMGUI_BEGIN_CHILD_B);
 CLEO_RegisterOpcode(0x2207, IMGUI_END_CHILD);
-//CLEO_RegisterOpcode(0x2208, IMGUI_TABS);
+CLEO_RegisterOpcode(0x2208, IMGUI_TABS);
 CLEO_RegisterOpcode(0x2209, IMGUI_COLLAPSING_HEADER);
 CLEO_RegisterOpcode(0x220A, IMGUI_SET_WINDOW_POS);
 CLEO_RegisterOpcode(0x220B, IMGUI_SET_WINDOW_SIZE);
 CLEO_RegisterOpcode(0x220C, IMGUI_SET_NEXT_WINDOW_POS);
 CLEO_RegisterOpcode(0x220D, IMGUI_SET_NEXT_WINDOW_SIZE);
 CLEO_RegisterOpcode(0x220E, IMGUI_TEXT);
-//CLEO_RegisterOpcode(0x220F, IMGUI_TEXT_CENTERED);
+CLEO_RegisterOpcode(0x220F, IMGUI_TEXT_CENTERED);
 CLEO_RegisterOpcode(0x2210, IMGUI_TEXT_DISABLED);
 CLEO_RegisterOpcode(0x2211, IMGUI_TEXT_WRAPPED);
 CLEO_RegisterOpcode(0x2212, IMGUI_TEXT_COLORED);
 CLEO_RegisterOpcode(0x2213, IMGUI_BULLET_TEXT);
 CLEO_RegisterOpcode(0x2214, IMGUI_BULLET);
 CLEO_RegisterOpcode(0x2215, IMGUI_CHECKBOX);
-//CLEO_RegisterOpcode(0x2216, IMGUI_COMBO);
+CLEO_RegisterOpcode(0x2216, IMGUI_COMBO);
 CLEO_RegisterOpcode(0x2217, IMGUI_SET_TOOLTIP);
 CLEO_RegisterOpcode(0x2218, IMGUI_BUTTON);
 CLEO_RegisterOpcode(0x2219, IMGUI_IMAGE_BUTTON);
 CLEO_RegisterOpcode(0x221A, IMGUI_INVISIBLE_BUTTON_B);
 CLEO_RegisterOpcode(0x221B, IMGUI_COLOR_BUTTON_B);
-//CLEO_RegisterOpcode(0x221C, IMGUI_ARROW_BUTTON);
+CLEO_RegisterOpcode(0x221C, IMGUI_ARROW_BUTTON);
 CLEO_RegisterOpcode(0x221D, IMGUI_SLIDER_INT_B);
 CLEO_RegisterOpcode(0x221E, IMGUI_SLIDER_FLOAT_B);
 CLEO_RegisterOpcode(0x221F, IMGUI_INPUT_INT_B);
@@ -2502,45 +3706,131 @@ CLEO_RegisterOpcode(0x222F, IMGUI_IS_ITEM_ACTIVE_B);
 CLEO_RegisterOpcode(0x2230, IMGUI_IS_ITEM_CLICKED_B);
 CLEO_RegisterOpcode(0x2231, IMGUI_IS_ITEM_FOCUSED_B);
 CLEO_RegisterOpcode(0x2232, IMGUI_IS_ITEM_HOVERED_B);
-//CLEO_RegisterOpcode(0x2233, IMGUI_SET_ITEM_INT);
-//CLEO_RegisterOpcode(0x2234, IMGUI_SET_ITEM_FLOAT);
-//CLEO_RegisterOpcode(0x2235, IMGUI_SET_ITEM_TEXT);
+CLEO_RegisterOpcode(0x2233, IMGUI_SET_ITEM_INT);
+CLEO_RegisterOpcode(0x2234, IMGUI_SET_ITEM_FLOAT);
+CLEO_RegisterOpcode(0x2235, IMGUI_SET_ITEM_TEXT);
 CLEO_RegisterOpcode(0x2236, IMGUI_SET_IMAGE_BG_COLOR);
 CLEO_RegisterOpcode(0x2237, IMGUI_SET_IMAGE_TINT_COLOR);
 CLEO_RegisterOpcode(0x2238, IMGUI_LOAD_IMAGE);
 CLEO_RegisterOpcode(0x2239, IMGUI_FREE_IMAGE);
-//CLEO_RegisterOpcode(0x223A, IMGUI_PUSH_STYLE_VAR);
-//CLEO_RegisterOpcode(0x223B, IMGUI_PUSH_STYLE_VAR2);
-//CLEO_RegisterOpcode(0x223C, IMGUI_PUSH_STYLE_COLOR);
-//CLEO_RegisterOpcode(0x223D, IMGUI_POP_STYLE_VAR);
-//CLEO_RegisterOpcode(0x223E, IMGUI_POP_STYLE_COLOR);
-//CLEO_RegisterOpcode(0x223F, IMGUI_GET_FOREGROUND_DRAWLIST);
-//CLEO_RegisterOpcode(0x2240, IMGUI_GET_BACKGROUND_DRAWLIST);
-//CLEO_RegisterOpcode(0x2241, IMGUI_GET_WINDOW_DRAWLIST);
+CLEO_RegisterOpcode(0x223A, IMGUI_PUSH_STYLE_VAR);
+CLEO_RegisterOpcode(0x223B, IMGUI_PUSH_STYLE_VAR2);
+CLEO_RegisterOpcode(0x223C, IMGUI_PUSH_STYLE_COLOR);
+CLEO_RegisterOpcode(0x223D, IMGUI_POP_STYLE_VAR);
+CLEO_RegisterOpcode(0x223E, IMGUI_POP_STYLE_COLOR);
+CLEO_RegisterOpcode(0x223F, IMGUI_GET_FOREGROUND_DRAWLIST);
+CLEO_RegisterOpcode(0x2240, IMGUI_GET_BACKGROUND_DRAWLIST);
+CLEO_RegisterOpcode(0x2241, IMGUI_GET_WINDOW_DRAWLIST);
 CLEO_RegisterOpcode(0x2242, IMGUI_DRAWLIST_ADD_TEXT_B);
-//CLEO_RegisterOpcode(0x2243, IMGUI_DRAWLIST_ADD_LINE);
-//CLEO_RegisterOpcode(0x2244, GET_FRAMERATE);
+CLEO_RegisterOpcode(0x2243, IMGUI_DRAWLIST_ADD_LINE);
+CLEO_RegisterOpcode(0x2244, IMGUI_GET_FRAMERATE);
 CLEO_RegisterOpcode(0x2245, IMGUI_GET_VERSION);
 CLEO_RegisterOpcode(0x2246, IMGUI_GET_CLEO_IMGUI_VERSION);
-//CLEO_RegisterOpcode(0x2247, IMGUI_SET_CURSOR_VISIBLE);
+CLEO_RegisterOpcode(0x2247, IMGUI_SET_CURSOR_VISIBLE);
 CLEO_RegisterOpcode(0x2248, IMGUI_GET_FRAME_HEIGHT);
 CLEO_RegisterOpcode(0x2249, IMGUI_GET_WINDOW_POS);
-//CLEO_RegisterOpcode(0x224A, IMGUI_GET_WINDOW_SIZE);
-//CLEO_RegisterOpcode(0x224B, IMGUI_CALC_TEXT_SIZE);
+CLEO_RegisterOpcode(0x224A, IMGUI_GET_WINDOW_SIZE);
+CLEO_RegisterOpcode(0x224B, IMGUI_CALC_TEXT_SIZE);
 CLEO_RegisterOpcode(0x224C, IMGUI_GET_WINDOW_CONTENT_REGION_WIDTH);
-//CLEO_RegisterOpcode(0x224D, IMGUI_GET_SCALING_SIZE);
-//CLEO_RegisterOpcode(0x224E, IMGUI_GET_DISPLAY_SIZE);
-//CLEO_RegisterOpcode(0x224F, IMGUI_SET_NEXT_WINDOW_TRANSPARENCY);
-//CLEO_RegisterOpcode(0x2250, IMGUI_SET_MESSAGE);
+CLEO_RegisterOpcode(0x224D, IMGUI_GET_SCALING_SIZE);
+CLEO_RegisterOpcode(0x224E, IMGUI_GET_DISPLAY_SIZE);
+CLEO_RegisterOpcode(0x224F, IMGUI_SET_NEXT_WINDOW_TRANSPARENCY);
+CLEO_RegisterOpcode(0x2250, IMGUI_SET_MESSAGE);
 
-CLEO_RegisterOpcode(0x2300, IMGUI_SET_IMAGE_UV);
-CLEO_RegisterOpcode(0x2301, IMGUI_SET_IMAGE_BORDER_COLOR);
-CLEO_RegisterOpcode(0x2302, IMGUI_SET_TEXT_LIMIT);
-CLEO_RegisterOpcode(0x2303, IMGUI_KEYBOARD_SHOW);
-CLEO_RegisterOpcode(0x2304, IMGUI_KEYBOARD_HIDE);
-CLEO_RegisterOpcode(0x2305, IMGUI_KEYBOARD_IS_VISIBLE);
-CLEO_RegisterOpcode(0x2306, IMGUI_IMAGE_RESET_COLOR);
-CLEO_RegisterOpcode(0x2307, IMGUI_KEYBOARD_SET_ENTER_MODE);
+
+CLEO_RegisterOpcode(0x2300, IMGUI_SET_TEXT_LIMIT);
+CLEO_RegisterOpcode(0x2301, IMGUI_KEYBOARD_SHOW);
+CLEO_RegisterOpcode(0x2302, IMGUI_KEYBOARD_HIDE);
+CLEO_RegisterOpcode(0x2303, IMGUI_KEYBOARD_IS_VISIBLE);
+CLEO_RegisterOpcode(0x2304, IMGUI_IMAGE_RESET_COLOR);
+CLEO_RegisterOpcode(0x2305, IMGUI_KEYBOARD_SET_ENTER_MODE);
+
+
+CLEO_RegisterOpcode(0x2310, IMGUI_INDENT);
+CLEO_RegisterOpcode(0x2311, IMGUI_UNINDENT);
+CLEO_RegisterOpcode(0x2312, IMGUI_BEGIN_GROUP);
+CLEO_RegisterOpcode(0x2313, IMGUI_END_GROUP);
+CLEO_RegisterOpcode(0x2314, IMGUI_ALIGN_TEXT_TO_FRAME_PADDING);
+CLEO_RegisterOpcode(0x2315, IMGUI_GET_TEXT_LINE_HEIGHT);
+CLEO_RegisterOpcode(0x2316, IMGUI_GET_TEXT_LINE_HEIGHT_WITH_SPACING);
+CLEO_RegisterOpcode(0x2317, IMGUI_SMALL_BUTTON);
+CLEO_RegisterOpcode(0x2318, IMGUI_CHECKBOX_FLAGS_INT);
+CLEO_RegisterOpcode(0x2319, IMGUI_RADIO_BUTTON_ACTIVE);
+CLEO_RegisterOpcode(0x231A, IMGUI_INPUT_INT_X);
+CLEO_RegisterOpcode(0x231B, IMGUI_INPUT_FLOAT_X);
+CLEO_RegisterOpcode(0x231C, IMGUI_DRAG_INT);
+CLEO_RegisterOpcode(0x231D, IMGUI_DRAG_INT_X);
+CLEO_RegisterOpcode(0x231E, IMGUI_DRAG_FLOAT);
+CLEO_RegisterOpcode(0x231F, IMGUI_DRAG_FLOAT_X);
+CLEO_RegisterOpcode(0x2320, IMGUI_SLIDER_INT_X);
+CLEO_RegisterOpcode(0x2321, IMGUI_SLIDER_FLOAT_X);
+CLEO_RegisterOpcode(0x2322, IMGUI_SLIDER_ANGLE);
+CLEO_RegisterOpcode(0x2323, IMGUI_VALUE_BOOL);
+CLEO_RegisterOpcode(0x2324, IMGUI_VALUE_INT);
+CLEO_RegisterOpcode(0x2325, IMGUI_VALUE_FLOAT);
+
+// Trees
+CLEO_RegisterOpcode(0x2326, IMGUI_TREE_NODE);
+CLEO_RegisterOpcode(0x2327, IMGUI_TREE_NODE_EX);
+CLEO_RegisterOpcode(0x2328, IMGUI_TREE_PUSH);
+CLEO_RegisterOpcode(0x2329, IMGUI_TREE_POP);
+CLEO_RegisterOpcode(0x232A, IMGUI_COLLAPSING_HEADER_EX);
+CLEO_RegisterOpcode(0x232B, IMGUI_SET_NEXT_ITEM_OPEN);
+
+// Popups
+CLEO_RegisterOpcode(0x232C, IMGUI_OPEN_POPUP);
+CLEO_RegisterOpcode(0x232D, IMGUI_BEGIN_POPUP);
+CLEO_RegisterOpcode(0x232E, IMGUI_END_POPUP);
+CLEO_RegisterOpcode(0x232F, IMGUI_CLOSE_CURRENT_POPUP);
+CLEO_RegisterOpcode(0x2330, IMGUI_OPEN_POPUP_ON_ITEM_CLICK);
+CLEO_RegisterOpcode(0x2331, IMGUI_BEGIN_POPUP_CONTEXT_ITEM);
+CLEO_RegisterOpcode(0x2332, IMGUI_BEGIN_POPUP_CONTEXT_WINDOW);
+CLEO_RegisterOpcode(0x2333, IMGUI_BEGIN_POPUP_CONTEXT_VOID);
+CLEO_RegisterOpcode(0x2334, IMGUI_IS_POPUP_OPEN);
+
+// Tab bars
+CLEO_RegisterOpcode(0x2335, IMGUI_BEGIN_TAB_BAR);
+CLEO_RegisterOpcode(0x2336, IMGUI_END_TAB_BAR);
+CLEO_RegisterOpcode(0x2337, IMGUI_BEGIN_TAB_ITEM);
+CLEO_RegisterOpcode(0x2338, IMGUI_END_TAB_ITEM);
+CLEO_RegisterOpcode(0x2339, IMGUI_TAB_ITEM_BUTTON);
+CLEO_RegisterOpcode(0x233A, IMGUI_SET_TAB_ITEM_CLOSED);
+
+// Tables
+CLEO_RegisterOpcode(0x233B, IMGUI_BEGIN_TABLE);
+CLEO_RegisterOpcode(0x233C, IMGUI_END_TABLE);
+CLEO_RegisterOpcode(0x233D, IMGUI_TABLE_NEXT_ROW);
+CLEO_RegisterOpcode(0x233E, IMGUI_TABLE_NEXT_COLUMN);
+CLEO_RegisterOpcode(0x233F, IMGUI_TABLE_SET_COLUMN_INDEX);
+CLEO_RegisterOpcode(0x2340, IMGUI_TABLE_SETUP_COLUMN);
+CLEO_RegisterOpcode(0x2341, IMGUI_TABLE_SETUP_SCROLL_FREEZE);
+CLEO_RegisterOpcode(0x2342, IMGUI_TABLE_HEADERS_ROW);
+CLEO_RegisterOpcode(0x2343, IMGUI_TABLE_HEADER);
+CLEO_RegisterOpcode(0x2344, IMGUI_TABLE_GET_COLUMN_COUNT);
+CLEO_RegisterOpcode(0x2345, IMGUI_TABLE_GET_COLUMN_INDEX);
+CLEO_RegisterOpcode(0x2346, IMGUI_TABLE_GET_ROW_INDEX);
+CLEO_RegisterOpcode(0x2347, IMGUI_TABLE_GET_COLUMN_NAME);
+CLEO_RegisterOpcode(0x2348, IMGUI_TABLE_GET_COLUMN_FLAGS);
+CLEO_RegisterOpcode(0x2349, IMGUI_TABLE_SET_COLUMN_ENABLED);
+CLEO_RegisterOpcode(0x234A, IMGUI_TABLE_SET_BG_COLOR);
+
+CLEO_RegisterOpcode(0x234B, IMGUI_LABEL_TEXT);
+CLEO_RegisterOpcode(0x234C, IMGUI_BEGIN_TOOLTIP);
+CLEO_RegisterOpcode(0x234D, IMGUI_END_TOOLTIP);
+CLEO_RegisterOpcode(0x234E, IMGUI_BEGIN_MENU);
+CLEO_RegisterOpcode(0x234F, IMGUI_END_MENU);
+CLEO_RegisterOpcode(0x2350, IMGUI_MENU_ITEM_EX);
+CLEO_RegisterOpcode(0x2352, IMGUI_BEGIN_LISTBOX);
+CLEO_RegisterOpcode(0x2353, IMGUI_END_LISTBOX);
+CLEO_RegisterOpcode(0x2354, IMGUI_LISTBOX);
+CLEO_RegisterOpcode(0x2355, IMGUI_PLOT_LINES);
+CLEO_RegisterOpcode(0x2356, IMGUI_PLOT_HISTOGRAM);
+CLEO_RegisterOpcode(0x2357, IMGUI_GET_TIME);
+CLEO_RegisterOpcode(0x2358, IMGUI_GET_FRAME_COUNT);
+
+CLEO_RegisterOpcode(0x2359, IMGUI_SET_IMAGE_UV);
+CLEO_RegisterOpcode(0x235A, IMGUI_SET_IMAGE_BORDER_COLOR);
+
 
     logger->Info("CLEO opcodes for ImGui registered.");
 }
