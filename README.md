@@ -1,4 +1,4 @@
-# CLEO ImGui v1.2.0
+# CLEO ImGui Mobile
 Project inspired by [CLEO ImGui](https://github.com/user-grinch/CLEOImGui) by User-Grinch, respecting the order of its opcodes.
 
 Created by: Matias A. Rossi (MatiDragon)
@@ -12,7 +12,18 @@ The project offers partial support for PC opcodes in Android.
 
 <h2>CHANGE LOG</h2>
 
-### CLEO ImGui v1.2.0
+### ImGui v1.3.0
+
+The IDs of many opcodes were changed because they conflicted with other extensions such as CLEO+ and CLEO5.
+
+New order:
+
+* `2300-235A -> 7100-715A` : **ImGui Mobile** with **CLEO 5**
+* `0F01-0F17 -> 715B-7170` : **ImGui** with **CLEO Plus**
+
+The missing vertical sliders were added (7171-7172).
+
+### ImGui v1.2.0
 
 Almost all the opcodes from CLEO ImGui (0F01-0F63) and CLEO ImGui Redux (2202-2250) were added.
 Expanding opcodes () to have Trees, Checkboxes, Labels, Menus, Tables, etc.
@@ -23,13 +34,13 @@ The algorithm would have to be this:
 * IMGUI_LOAD_IMAGE ! If an image could not be loaded, it returns -1; otherwise, it keeps the same ID.
 * IMGUI_FREE_IMAGE ! It removes the map reference, but doesn't release the texture from the GPU (due to a lack of API). It's used to upload edited images.
 
-### CLEO ImGui v1.1.1
+### ImGui v1.1.1
 
 Support for virtual keyboard inputs.
 
 Implemented opcodes of "CLEO ImGui Redux".
 
-### CLEO ImGui v1.1.0
+### ImGui v1.1.0
 
 Added opcodes:
 * IMGUI_IS_ITEM_HOVERED
@@ -41,7 +52,7 @@ Added opcodes:
 * IMGUI_IS_WINDOW_HOVERED
 * IMGUI_IS_WINDOW_FOCUSED
 
-### CLEO ImGui v1.0.1
+### ImGui v1.0.1
 
 Arranged conditionals:
 * IMGUI_CHECKBO
@@ -66,7 +77,7 @@ Fixed returns:
 * IMGUI_GET_CLEO_IMGUI_VERSION (STRING)
 * IMGUI_GET_VERSION (STRING)
 
-### CLEO ImGui v1.0.0
+### ImGui v1.0.0
 
 Added opcodes:
 * IMGUI_BEGIN

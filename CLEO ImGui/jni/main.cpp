@@ -23,7 +23,7 @@ void NoneFunctionLogic(uintptr_t) { return; }
 
 #include "RW/rwcore.h" 
 
-MYMOD(net.matidragon.cleo_imgui, CLEO_ImGui, 1.2.0, MatiDragon)
+MYMOD(net.matidragon.cleo_imgui, CLEO_ImGui, 1.3.0, MatiDragon)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY_VER(net.rusjj.cleolib, 2.0.1.10)
 END_DEPLIST()
@@ -1182,7 +1182,7 @@ CLEO_Fn(IMGUI_SEPARATOR)
 // 0F26: imgui_get_cleo_imgui_version  (directo, sin cola)
 CLEO_Fn(IMGUI_GET_CLEO_IMGUI_VERSION)
 {
-    cleoaddon->WriteString(handle, "1.2.0");
+    cleoaddon->WriteString(handle, "1.3.0");
 }
 
 // 0F27: imgui_get_version  (directo)
@@ -3513,6 +3513,42 @@ CLEO_Fn(IMGUI_GET_FRAME_COUNT)
     if (pOut) *pOut = ImGui::GetFrameCount();
 }
 
+CLEO_Fn(IMGUI_VSLIDER_INT)
+{
+    READ_STRING(label, 128);
+    READ_INT(minVal);
+    READ_INT(maxVal);
+    READ_FLOAT(width);
+    READ_FLOAT(height);
+    READ_INT_PTR(pVar);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, pVar, minVal, maxVal, width, height, handle]() {
+        bool changed = ImGui::VSliderInt(lbl.c_str(), ImVec2(width, height), pVar, minVal, maxVal, "%d", 0);
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+
+CLEO_Fn(IMGUI_VSLIDER_FLOAT)
+{
+    READ_STRING(label, 128);
+    READ_FLOAT(minVal);
+    READ_FLOAT(maxVal);
+    READ_FLOAT(width);
+    READ_FLOAT(height);
+    READ_FLOAT_PTR(pVar);
+
+    APPLY_DEFERRED_COND();
+
+    std::string lbl = label;
+    g_drawQueue.push_back([lbl, pVar, minVal, maxVal, width, height, handle]() {
+        bool changed = ImGui::VSliderFloat(lbl.c_str(), ImVec2(width, height), pVar, minVal, maxVal, "%.2f", 0);
+        PUSH_DEFERRED_BOOL(changed);
+    });
+}
+
 // ---------- Entradas del módulo ----------
 extern "C" void OnModPreLoad()
 {
@@ -3531,7 +3567,7 @@ extern "C" void OnModPreLoad()
 
 void SAUtilsStarted()
 {
-    snprintf(szCLEOImGuiVer, sizeof(szCLEOImGuiVer), "ImGui v.1.2.0");
+    snprintf(szCLEOImGuiVer, sizeof(szCLEOImGuiVer), "ImGui v.1.3.0");
     sautils->AddButton(SetType_Mods, szCLEOImGuiVer, NoneFunctionLogic);
 }
 
@@ -3558,29 +3594,6 @@ extern "C" void OnModLoad()
     cleoaddon = (cleo_addon_ifs_t*)GetInterface("CLEOAddon");
     if (!cleoaddon) { logger->Error("CLEOAddon interface not found"); return; }
 
-    CLEO_RegisterOpcode(0x0F01, IMGUI_BEGIN_A);
-    CLEO_RegisterOpcode(0x0F02, IMGUI_END);
-    CLEO_RegisterOpcode(0x0F03, IMGUI_CHECKBOX);
-    CLEO_RegisterOpcode(0x0F04, IMGUI_BUTTON);
-    CLEO_RegisterOpcode(0x0F05, IMGUI_CALC_TEXT_HEIGHT);
-    CLEO_RegisterOpcode(0x0F06, IMGUI_CALC_TEXT_WIDTH);
-    CLEO_RegisterOpcode(0x0F07, IMGUI_SET_NEXT_WINDOW_POS);
-    CLEO_RegisterOpcode(0x0F08, IMGUI_SET_WINDOW_POS);
-    CLEO_RegisterOpcode(0x0F09, IMGUI_GET_FONT_SIZE);
-    CLEO_RegisterOpcode(0x0F0A, IMGUI_SET_NEXT_WINDOW_SIZE);
-    CLEO_RegisterOpcode(0x0F0B, IMGUI_SET_WINDOW_SIZE);
-    //CLEO_RegisterOpcode(0x0F0C, IMGUI_SHOW_DEMO_WINDOW);
-    //CLEO_RegisterOpcode(0x0F0D, IMGUI_SHOW_STYLE_EDITOR);
-    CLEO_RegisterOpcode(0x0F0E, IMGUI_TEXT);
-    CLEO_RegisterOpcode(0x0F0F, IMGUI_TEXT_WRAPPED);
-    CLEO_RegisterOpcode(0x0F10, IMGUI_TEXT_DISABLED);
-    CLEO_RegisterOpcode(0x0F11, IMGUI_TEXT_COLORED);
-    CLEO_RegisterOpcode(0x0F12, IMGUI_COLUMNS);
-    CLEO_RegisterOpcode(0x0F13, IMGUI_NEXT_COLUMN);
-    CLEO_RegisterOpcode(0x0F14, IMGUI_SPACING);
-    CLEO_RegisterOpcode(0x0F15, IMGUI_DUMMY);
-    CLEO_RegisterOpcode(0x0F16, IMGUI_SAMELINE);
-    CLEO_RegisterOpcode(0x0F17, IMGUI_SLIDER_INT);
     CLEO_RegisterOpcode(0x0F18, IMGUI_SLIDER_FLOAT);
     CLEO_RegisterOpcode(0x0F19, IMGUI_COLOR_EDIT);
     CLEO_RegisterOpcode(0x0F1A, IMGUI_COLOR_PICKER);
@@ -3655,182 +3668,205 @@ extern "C" void OnModLoad()
     // CLEO Redux
     // ────────────────────────────────────
 
-//CLEO_RegisterOpcode(0x2200, IMGUI_BEGIN_FRAME);
-//CLEO_RegisterOpcode(0x2201, IMGUI_END_FRAME);
-CLEO_RegisterOpcode(0x2202, IMGUI_BEGIN_B);
-CLEO_RegisterOpcode(0x2203, IMGUI_END);
-CLEO_RegisterOpcode(0x2204, IMGUI_BEGIN_MAIN_MENU_BAR_B);
-CLEO_RegisterOpcode(0x2205, IMGUI_END_MAIN_MENU_BAR);
-CLEO_RegisterOpcode(0x2206, IMGUI_BEGIN_CHILD_B);
-CLEO_RegisterOpcode(0x2207, IMGUI_END_CHILD);
-CLEO_RegisterOpcode(0x2208, IMGUI_TABS);
-CLEO_RegisterOpcode(0x2209, IMGUI_COLLAPSING_HEADER);
-CLEO_RegisterOpcode(0x220A, IMGUI_SET_WINDOW_POS);
-CLEO_RegisterOpcode(0x220B, IMGUI_SET_WINDOW_SIZE);
-CLEO_RegisterOpcode(0x220C, IMGUI_SET_NEXT_WINDOW_POS);
-CLEO_RegisterOpcode(0x220D, IMGUI_SET_NEXT_WINDOW_SIZE);
-CLEO_RegisterOpcode(0x220E, IMGUI_TEXT);
-CLEO_RegisterOpcode(0x220F, IMGUI_TEXT_CENTERED);
-CLEO_RegisterOpcode(0x2210, IMGUI_TEXT_DISABLED);
-CLEO_RegisterOpcode(0x2211, IMGUI_TEXT_WRAPPED);
-CLEO_RegisterOpcode(0x2212, IMGUI_TEXT_COLORED);
-CLEO_RegisterOpcode(0x2213, IMGUI_BULLET_TEXT);
-CLEO_RegisterOpcode(0x2214, IMGUI_BULLET);
-CLEO_RegisterOpcode(0x2215, IMGUI_CHECKBOX);
-CLEO_RegisterOpcode(0x2216, IMGUI_COMBO);
-CLEO_RegisterOpcode(0x2217, IMGUI_SET_TOOLTIP);
-CLEO_RegisterOpcode(0x2218, IMGUI_BUTTON);
-CLEO_RegisterOpcode(0x2219, IMGUI_IMAGE_BUTTON);
-CLEO_RegisterOpcode(0x221A, IMGUI_INVISIBLE_BUTTON_B);
-CLEO_RegisterOpcode(0x221B, IMGUI_COLOR_BUTTON_B);
-CLEO_RegisterOpcode(0x221C, IMGUI_ARROW_BUTTON);
-CLEO_RegisterOpcode(0x221D, IMGUI_SLIDER_INT_B);
-CLEO_RegisterOpcode(0x221E, IMGUI_SLIDER_FLOAT_B);
-CLEO_RegisterOpcode(0x221F, IMGUI_INPUT_INT_B);
-CLEO_RegisterOpcode(0x2220, IMGUI_INPUT_FLOAT_B);
-CLEO_RegisterOpcode(0x2221, IMGUI_INPUT_TEXT_B);
-CLEO_RegisterOpcode(0x2222, IMGUI_RADIO_BUTTON_B);
-CLEO_RegisterOpcode(0x2223, IMGUI_COLOR_PICKER);
-CLEO_RegisterOpcode(0x2224, IMGUI_MENU_ITEM);
-CLEO_RegisterOpcode(0x2225, IMGUI_SELECTABLE_B);
-CLEO_RegisterOpcode(0x2226, IMGUI_DUMMY);
-CLEO_RegisterOpcode(0x2227, IMGUI_SAMELINE);
-CLEO_RegisterOpcode(0x2228, IMGUI_NEWLINE);
-CLEO_RegisterOpcode(0x2229, IMGUI_COLUMNS_B);
-CLEO_RegisterOpcode(0x222A, IMGUI_NEXT_COLUMN);
-CLEO_RegisterOpcode(0x222B, IMGUI_SPACING);
-CLEO_RegisterOpcode(0x222C, IMGUI_SEPARATOR);
-CLEO_RegisterOpcode(0x222D, IMGUI_PUSH_ITEM_WIDTH);
-CLEO_RegisterOpcode(0x222E, IMGUI_POP_ITEM_WIDTH);
-CLEO_RegisterOpcode(0x222F, IMGUI_IS_ITEM_ACTIVE_B);
-CLEO_RegisterOpcode(0x2230, IMGUI_IS_ITEM_CLICKED_B);
-CLEO_RegisterOpcode(0x2231, IMGUI_IS_ITEM_FOCUSED_B);
-CLEO_RegisterOpcode(0x2232, IMGUI_IS_ITEM_HOVERED_B);
-CLEO_RegisterOpcode(0x2233, IMGUI_SET_ITEM_INT);
-CLEO_RegisterOpcode(0x2234, IMGUI_SET_ITEM_FLOAT);
-CLEO_RegisterOpcode(0x2235, IMGUI_SET_ITEM_TEXT);
-CLEO_RegisterOpcode(0x2236, IMGUI_SET_IMAGE_BG_COLOR);
-CLEO_RegisterOpcode(0x2237, IMGUI_SET_IMAGE_TINT_COLOR);
-CLEO_RegisterOpcode(0x2238, IMGUI_LOAD_IMAGE);
-CLEO_RegisterOpcode(0x2239, IMGUI_FREE_IMAGE);
-CLEO_RegisterOpcode(0x223A, IMGUI_PUSH_STYLE_VAR);
-CLEO_RegisterOpcode(0x223B, IMGUI_PUSH_STYLE_VAR2);
-CLEO_RegisterOpcode(0x223C, IMGUI_PUSH_STYLE_COLOR);
-CLEO_RegisterOpcode(0x223D, IMGUI_POP_STYLE_VAR);
-CLEO_RegisterOpcode(0x223E, IMGUI_POP_STYLE_COLOR);
-CLEO_RegisterOpcode(0x223F, IMGUI_GET_FOREGROUND_DRAWLIST);
-CLEO_RegisterOpcode(0x2240, IMGUI_GET_BACKGROUND_DRAWLIST);
-CLEO_RegisterOpcode(0x2241, IMGUI_GET_WINDOW_DRAWLIST);
-CLEO_RegisterOpcode(0x2242, IMGUI_DRAWLIST_ADD_TEXT_B);
-CLEO_RegisterOpcode(0x2243, IMGUI_DRAWLIST_ADD_LINE);
-CLEO_RegisterOpcode(0x2244, IMGUI_GET_FRAMERATE);
-CLEO_RegisterOpcode(0x2245, IMGUI_GET_VERSION);
-CLEO_RegisterOpcode(0x2246, IMGUI_GET_CLEO_IMGUI_VERSION);
-CLEO_RegisterOpcode(0x2247, IMGUI_SET_CURSOR_VISIBLE);
-CLEO_RegisterOpcode(0x2248, IMGUI_GET_FRAME_HEIGHT);
-CLEO_RegisterOpcode(0x2249, IMGUI_GET_WINDOW_POS);
-CLEO_RegisterOpcode(0x224A, IMGUI_GET_WINDOW_SIZE);
-CLEO_RegisterOpcode(0x224B, IMGUI_CALC_TEXT_SIZE);
-CLEO_RegisterOpcode(0x224C, IMGUI_GET_WINDOW_CONTENT_REGION_WIDTH);
-CLEO_RegisterOpcode(0x224D, IMGUI_GET_SCALING_SIZE);
-CLEO_RegisterOpcode(0x224E, IMGUI_GET_DISPLAY_SIZE);
-CLEO_RegisterOpcode(0x224F, IMGUI_SET_NEXT_WINDOW_TRANSPARENCY);
-CLEO_RegisterOpcode(0x2250, IMGUI_SET_MESSAGE);
+    //CLEO_RegisterOpcode(0x2200, IMGUI_BEGIN_FRAME);
+    //CLEO_RegisterOpcode(0x2201, IMGUI_END_FRAME);
+    CLEO_RegisterOpcode(0x2202, IMGUI_BEGIN_B);
+    CLEO_RegisterOpcode(0x2203, IMGUI_END);
+    CLEO_RegisterOpcode(0x2204, IMGUI_BEGIN_MAIN_MENU_BAR_B);
+    CLEO_RegisterOpcode(0x2205, IMGUI_END_MAIN_MENU_BAR);
+    CLEO_RegisterOpcode(0x2206, IMGUI_BEGIN_CHILD_B);
+    CLEO_RegisterOpcode(0x2207, IMGUI_END_CHILD);
+    CLEO_RegisterOpcode(0x2208, IMGUI_TABS);
+    CLEO_RegisterOpcode(0x2209, IMGUI_COLLAPSING_HEADER);
+    CLEO_RegisterOpcode(0x220A, IMGUI_SET_WINDOW_POS);
+    CLEO_RegisterOpcode(0x220B, IMGUI_SET_WINDOW_SIZE);
+    CLEO_RegisterOpcode(0x220C, IMGUI_SET_NEXT_WINDOW_POS);
+    CLEO_RegisterOpcode(0x220D, IMGUI_SET_NEXT_WINDOW_SIZE);
+    CLEO_RegisterOpcode(0x220E, IMGUI_TEXT);
+    CLEO_RegisterOpcode(0x220F, IMGUI_TEXT_CENTERED);
+    CLEO_RegisterOpcode(0x2210, IMGUI_TEXT_DISABLED);
+    CLEO_RegisterOpcode(0x2211, IMGUI_TEXT_WRAPPED);
+    CLEO_RegisterOpcode(0x2212, IMGUI_TEXT_COLORED);
+    CLEO_RegisterOpcode(0x2213, IMGUI_BULLET_TEXT);
+    CLEO_RegisterOpcode(0x2214, IMGUI_BULLET);
+    CLEO_RegisterOpcode(0x2215, IMGUI_CHECKBOX);
+    CLEO_RegisterOpcode(0x2216, IMGUI_COMBO);
+    CLEO_RegisterOpcode(0x2217, IMGUI_SET_TOOLTIP);
+    CLEO_RegisterOpcode(0x2218, IMGUI_BUTTON);
+    CLEO_RegisterOpcode(0x2219, IMGUI_IMAGE_BUTTON);
+    CLEO_RegisterOpcode(0x221A, IMGUI_INVISIBLE_BUTTON_B);
+    CLEO_RegisterOpcode(0x221B, IMGUI_COLOR_BUTTON_B);
+    CLEO_RegisterOpcode(0x221C, IMGUI_ARROW_BUTTON);
+    CLEO_RegisterOpcode(0x221D, IMGUI_SLIDER_INT_B);
+    CLEO_RegisterOpcode(0x221E, IMGUI_SLIDER_FLOAT_B);
+    CLEO_RegisterOpcode(0x221F, IMGUI_INPUT_INT_B);
+    CLEO_RegisterOpcode(0x2220, IMGUI_INPUT_FLOAT_B);
+    CLEO_RegisterOpcode(0x2221, IMGUI_INPUT_TEXT_B);
+    CLEO_RegisterOpcode(0x2222, IMGUI_RADIO_BUTTON_B);
+    CLEO_RegisterOpcode(0x2223, IMGUI_COLOR_PICKER);
+    CLEO_RegisterOpcode(0x2224, IMGUI_MENU_ITEM);
+    CLEO_RegisterOpcode(0x2225, IMGUI_SELECTABLE_B);
+    CLEO_RegisterOpcode(0x2226, IMGUI_DUMMY);
+    CLEO_RegisterOpcode(0x2227, IMGUI_SAMELINE);
+    CLEO_RegisterOpcode(0x2228, IMGUI_NEWLINE);
+    CLEO_RegisterOpcode(0x2229, IMGUI_COLUMNS_B);
+    CLEO_RegisterOpcode(0x222A, IMGUI_NEXT_COLUMN);
+    CLEO_RegisterOpcode(0x222B, IMGUI_SPACING);
+    CLEO_RegisterOpcode(0x222C, IMGUI_SEPARATOR);
+    CLEO_RegisterOpcode(0x222D, IMGUI_PUSH_ITEM_WIDTH);
+    CLEO_RegisterOpcode(0x222E, IMGUI_POP_ITEM_WIDTH);
+    CLEO_RegisterOpcode(0x222F, IMGUI_IS_ITEM_ACTIVE_B);
+    CLEO_RegisterOpcode(0x2230, IMGUI_IS_ITEM_CLICKED_B);
+    CLEO_RegisterOpcode(0x2231, IMGUI_IS_ITEM_FOCUSED_B);
+    CLEO_RegisterOpcode(0x2232, IMGUI_IS_ITEM_HOVERED_B);
+    CLEO_RegisterOpcode(0x2233, IMGUI_SET_ITEM_INT);
+    CLEO_RegisterOpcode(0x2234, IMGUI_SET_ITEM_FLOAT);
+    CLEO_RegisterOpcode(0x2235, IMGUI_SET_ITEM_TEXT);
+    CLEO_RegisterOpcode(0x2236, IMGUI_SET_IMAGE_BG_COLOR);
+    CLEO_RegisterOpcode(0x2237, IMGUI_SET_IMAGE_TINT_COLOR);
+    CLEO_RegisterOpcode(0x2238, IMGUI_LOAD_IMAGE);
+    CLEO_RegisterOpcode(0x2239, IMGUI_FREE_IMAGE);
+    CLEO_RegisterOpcode(0x223A, IMGUI_PUSH_STYLE_VAR);
+    CLEO_RegisterOpcode(0x223B, IMGUI_PUSH_STYLE_VAR2);
+    CLEO_RegisterOpcode(0x223C, IMGUI_PUSH_STYLE_COLOR);
+    CLEO_RegisterOpcode(0x223D, IMGUI_POP_STYLE_VAR);
+    CLEO_RegisterOpcode(0x223E, IMGUI_POP_STYLE_COLOR);
+    CLEO_RegisterOpcode(0x223F, IMGUI_GET_FOREGROUND_DRAWLIST);
+    CLEO_RegisterOpcode(0x2240, IMGUI_GET_BACKGROUND_DRAWLIST);
+    CLEO_RegisterOpcode(0x2241, IMGUI_GET_WINDOW_DRAWLIST);
+    CLEO_RegisterOpcode(0x2242, IMGUI_DRAWLIST_ADD_TEXT_B);
+    CLEO_RegisterOpcode(0x2243, IMGUI_DRAWLIST_ADD_LINE);
+    CLEO_RegisterOpcode(0x2244, IMGUI_GET_FRAMERATE);
+    CLEO_RegisterOpcode(0x2245, IMGUI_GET_VERSION);
+    CLEO_RegisterOpcode(0x2246, IMGUI_GET_CLEO_IMGUI_VERSION);
+    CLEO_RegisterOpcode(0x2247, IMGUI_SET_CURSOR_VISIBLE);
+    CLEO_RegisterOpcode(0x2248, IMGUI_GET_FRAME_HEIGHT);
+    CLEO_RegisterOpcode(0x2249, IMGUI_GET_WINDOW_POS);
+    CLEO_RegisterOpcode(0x224A, IMGUI_GET_WINDOW_SIZE);
+    CLEO_RegisterOpcode(0x224B, IMGUI_CALC_TEXT_SIZE);
+    CLEO_RegisterOpcode(0x224C, IMGUI_GET_WINDOW_CONTENT_REGION_WIDTH);
+    CLEO_RegisterOpcode(0x224D, IMGUI_GET_SCALING_SIZE);
+    CLEO_RegisterOpcode(0x224E, IMGUI_GET_DISPLAY_SIZE);
+    CLEO_RegisterOpcode(0x224F, IMGUI_SET_NEXT_WINDOW_TRANSPARENCY);
+    CLEO_RegisterOpcode(0x2250, IMGUI_SET_MESSAGE);
 
 
-CLEO_RegisterOpcode(0x2300, IMGUI_SET_TEXT_LIMIT);
-CLEO_RegisterOpcode(0x2301, IMGUI_KEYBOARD_SHOW);
-CLEO_RegisterOpcode(0x2302, IMGUI_KEYBOARD_HIDE);
-CLEO_RegisterOpcode(0x2303, IMGUI_KEYBOARD_IS_VISIBLE);
-CLEO_RegisterOpcode(0x2304, IMGUI_IMAGE_RESET_COLOR);
-CLEO_RegisterOpcode(0x2305, IMGUI_KEYBOARD_SET_ENTER_MODE);
+    CLEO_RegisterOpcode(0x7100, IMGUI_SET_TEXT_LIMIT);
+    CLEO_RegisterOpcode(0x7101, IMGUI_KEYBOARD_SHOW);
+    CLEO_RegisterOpcode(0x7102, IMGUI_KEYBOARD_HIDE);
+    CLEO_RegisterOpcode(0x7103, IMGUI_KEYBOARD_IS_VISIBLE);
+    CLEO_RegisterOpcode(0x7104, IMGUI_IMAGE_RESET_COLOR);
+    CLEO_RegisterOpcode(0x7105, IMGUI_KEYBOARD_SET_ENTER_MODE);
 
+    CLEO_RegisterOpcode(0x7110, IMGUI_INDENT);
+    CLEO_RegisterOpcode(0x7111, IMGUI_UNINDENT);
+    CLEO_RegisterOpcode(0x7112, IMGUI_BEGIN_GROUP);
+    CLEO_RegisterOpcode(0x7113, IMGUI_END_GROUP);
+    CLEO_RegisterOpcode(0x7114, IMGUI_ALIGN_TEXT_TO_FRAME_PADDING);
+    CLEO_RegisterOpcode(0x7115, IMGUI_GET_TEXT_LINE_HEIGHT);
+    CLEO_RegisterOpcode(0x7116, IMGUI_GET_TEXT_LINE_HEIGHT_WITH_SPACING);
+    CLEO_RegisterOpcode(0x7117, IMGUI_SMALL_BUTTON);
+    CLEO_RegisterOpcode(0x7118, IMGUI_CHECKBOX_FLAGS_INT);
+    CLEO_RegisterOpcode(0x7119, IMGUI_RADIO_BUTTON_ACTIVE);
+    CLEO_RegisterOpcode(0x711A, IMGUI_INPUT_INT_X);
+    CLEO_RegisterOpcode(0x711B, IMGUI_INPUT_FLOAT_X);
+    CLEO_RegisterOpcode(0x711C, IMGUI_DRAG_INT);
+    CLEO_RegisterOpcode(0x711D, IMGUI_DRAG_INT_X);
+    CLEO_RegisterOpcode(0x711E, IMGUI_DRAG_FLOAT);
+    CLEO_RegisterOpcode(0x711F, IMGUI_DRAG_FLOAT_X);
+    CLEO_RegisterOpcode(0x7120, IMGUI_SLIDER_INT_X);
+    CLEO_RegisterOpcode(0x7121, IMGUI_SLIDER_FLOAT_X);
+    CLEO_RegisterOpcode(0x7122, IMGUI_SLIDER_ANGLE);
+    CLEO_RegisterOpcode(0x7123, IMGUI_VALUE_BOOL);
+    CLEO_RegisterOpcode(0x7124, IMGUI_VALUE_INT);
+    CLEO_RegisterOpcode(0x7125, IMGUI_VALUE_FLOAT);
 
-CLEO_RegisterOpcode(0x2310, IMGUI_INDENT);
-CLEO_RegisterOpcode(0x2311, IMGUI_UNINDENT);
-CLEO_RegisterOpcode(0x2312, IMGUI_BEGIN_GROUP);
-CLEO_RegisterOpcode(0x2313, IMGUI_END_GROUP);
-CLEO_RegisterOpcode(0x2314, IMGUI_ALIGN_TEXT_TO_FRAME_PADDING);
-CLEO_RegisterOpcode(0x2315, IMGUI_GET_TEXT_LINE_HEIGHT);
-CLEO_RegisterOpcode(0x2316, IMGUI_GET_TEXT_LINE_HEIGHT_WITH_SPACING);
-CLEO_RegisterOpcode(0x2317, IMGUI_SMALL_BUTTON);
-CLEO_RegisterOpcode(0x2318, IMGUI_CHECKBOX_FLAGS_INT);
-CLEO_RegisterOpcode(0x2319, IMGUI_RADIO_BUTTON_ACTIVE);
-CLEO_RegisterOpcode(0x231A, IMGUI_INPUT_INT_X);
-CLEO_RegisterOpcode(0x231B, IMGUI_INPUT_FLOAT_X);
-CLEO_RegisterOpcode(0x231C, IMGUI_DRAG_INT);
-CLEO_RegisterOpcode(0x231D, IMGUI_DRAG_INT_X);
-CLEO_RegisterOpcode(0x231E, IMGUI_DRAG_FLOAT);
-CLEO_RegisterOpcode(0x231F, IMGUI_DRAG_FLOAT_X);
-CLEO_RegisterOpcode(0x2320, IMGUI_SLIDER_INT_X);
-CLEO_RegisterOpcode(0x2321, IMGUI_SLIDER_FLOAT_X);
-CLEO_RegisterOpcode(0x2322, IMGUI_SLIDER_ANGLE);
-CLEO_RegisterOpcode(0x2323, IMGUI_VALUE_BOOL);
-CLEO_RegisterOpcode(0x2324, IMGUI_VALUE_INT);
-CLEO_RegisterOpcode(0x2325, IMGUI_VALUE_FLOAT);
+    // Trees
+    CLEO_RegisterOpcode(0x7126, IMGUI_TREE_NODE);
+    CLEO_RegisterOpcode(0x7127, IMGUI_TREE_NODE_EX);
+    CLEO_RegisterOpcode(0x7128, IMGUI_TREE_PUSH);
+    CLEO_RegisterOpcode(0x7129, IMGUI_TREE_POP);
+    CLEO_RegisterOpcode(0x712A, IMGUI_COLLAPSING_HEADER_EX);
+    CLEO_RegisterOpcode(0x712B, IMGUI_SET_NEXT_ITEM_OPEN);
 
-// Trees
-CLEO_RegisterOpcode(0x2326, IMGUI_TREE_NODE);
-CLEO_RegisterOpcode(0x2327, IMGUI_TREE_NODE_EX);
-CLEO_RegisterOpcode(0x2328, IMGUI_TREE_PUSH);
-CLEO_RegisterOpcode(0x2329, IMGUI_TREE_POP);
-CLEO_RegisterOpcode(0x232A, IMGUI_COLLAPSING_HEADER_EX);
-CLEO_RegisterOpcode(0x232B, IMGUI_SET_NEXT_ITEM_OPEN);
+    // Popups
+    CLEO_RegisterOpcode(0x712C, IMGUI_OPEN_POPUP);
+    CLEO_RegisterOpcode(0x712D, IMGUI_BEGIN_POPUP);
+    CLEO_RegisterOpcode(0x712E, IMGUI_END_POPUP);
+    CLEO_RegisterOpcode(0x712F, IMGUI_CLOSE_CURRENT_POPUP);
+    CLEO_RegisterOpcode(0x7130, IMGUI_OPEN_POPUP_ON_ITEM_CLICK);
+    CLEO_RegisterOpcode(0x7131, IMGUI_BEGIN_POPUP_CONTEXT_ITEM);
+    CLEO_RegisterOpcode(0x7132, IMGUI_BEGIN_POPUP_CONTEXT_WINDOW);
+    CLEO_RegisterOpcode(0x7133, IMGUI_BEGIN_POPUP_CONTEXT_VOID);
+    CLEO_RegisterOpcode(0x7134, IMGUI_IS_POPUP_OPEN);
 
-// Popups
-CLEO_RegisterOpcode(0x232C, IMGUI_OPEN_POPUP);
-CLEO_RegisterOpcode(0x232D, IMGUI_BEGIN_POPUP);
-CLEO_RegisterOpcode(0x232E, IMGUI_END_POPUP);
-CLEO_RegisterOpcode(0x232F, IMGUI_CLOSE_CURRENT_POPUP);
-CLEO_RegisterOpcode(0x2330, IMGUI_OPEN_POPUP_ON_ITEM_CLICK);
-CLEO_RegisterOpcode(0x2331, IMGUI_BEGIN_POPUP_CONTEXT_ITEM);
-CLEO_RegisterOpcode(0x2332, IMGUI_BEGIN_POPUP_CONTEXT_WINDOW);
-CLEO_RegisterOpcode(0x2333, IMGUI_BEGIN_POPUP_CONTEXT_VOID);
-CLEO_RegisterOpcode(0x2334, IMGUI_IS_POPUP_OPEN);
+    // Tab bars
+    CLEO_RegisterOpcode(0x7135, IMGUI_BEGIN_TAB_BAR);
+    CLEO_RegisterOpcode(0x7136, IMGUI_END_TAB_BAR);
+    CLEO_RegisterOpcode(0x7137, IMGUI_BEGIN_TAB_ITEM);
+    CLEO_RegisterOpcode(0x7138, IMGUI_END_TAB_ITEM);
+    CLEO_RegisterOpcode(0x7139, IMGUI_TAB_ITEM_BUTTON);
+    CLEO_RegisterOpcode(0x713A, IMGUI_SET_TAB_ITEM_CLOSED);
 
-// Tab bars
-CLEO_RegisterOpcode(0x2335, IMGUI_BEGIN_TAB_BAR);
-CLEO_RegisterOpcode(0x2336, IMGUI_END_TAB_BAR);
-CLEO_RegisterOpcode(0x2337, IMGUI_BEGIN_TAB_ITEM);
-CLEO_RegisterOpcode(0x2338, IMGUI_END_TAB_ITEM);
-CLEO_RegisterOpcode(0x2339, IMGUI_TAB_ITEM_BUTTON);
-CLEO_RegisterOpcode(0x233A, IMGUI_SET_TAB_ITEM_CLOSED);
+    // Tables
+    CLEO_RegisterOpcode(0x713B, IMGUI_BEGIN_TABLE);
+    CLEO_RegisterOpcode(0x713C, IMGUI_END_TABLE);
+    CLEO_RegisterOpcode(0x713D, IMGUI_TABLE_NEXT_ROW);
+    CLEO_RegisterOpcode(0x713E, IMGUI_TABLE_NEXT_COLUMN);
+    CLEO_RegisterOpcode(0x713F, IMGUI_TABLE_SET_COLUMN_INDEX);
+    CLEO_RegisterOpcode(0x7140, IMGUI_TABLE_SETUP_COLUMN);
+    CLEO_RegisterOpcode(0x7141, IMGUI_TABLE_SETUP_SCROLL_FREEZE);
+    CLEO_RegisterOpcode(0x7142, IMGUI_TABLE_HEADERS_ROW);
+    CLEO_RegisterOpcode(0x7143, IMGUI_TABLE_HEADER);
+    CLEO_RegisterOpcode(0x7144, IMGUI_TABLE_GET_COLUMN_COUNT);
+    CLEO_RegisterOpcode(0x7145, IMGUI_TABLE_GET_COLUMN_INDEX);
+    CLEO_RegisterOpcode(0x7146, IMGUI_TABLE_GET_ROW_INDEX);
+    CLEO_RegisterOpcode(0x7147, IMGUI_TABLE_GET_COLUMN_NAME);
+    CLEO_RegisterOpcode(0x7148, IMGUI_TABLE_GET_COLUMN_FLAGS);
+    CLEO_RegisterOpcode(0x7149, IMGUI_TABLE_SET_COLUMN_ENABLED);
+    CLEO_RegisterOpcode(0x714A, IMGUI_TABLE_SET_BG_COLOR);
 
-// Tables
-CLEO_RegisterOpcode(0x233B, IMGUI_BEGIN_TABLE);
-CLEO_RegisterOpcode(0x233C, IMGUI_END_TABLE);
-CLEO_RegisterOpcode(0x233D, IMGUI_TABLE_NEXT_ROW);
-CLEO_RegisterOpcode(0x233E, IMGUI_TABLE_NEXT_COLUMN);
-CLEO_RegisterOpcode(0x233F, IMGUI_TABLE_SET_COLUMN_INDEX);
-CLEO_RegisterOpcode(0x2340, IMGUI_TABLE_SETUP_COLUMN);
-CLEO_RegisterOpcode(0x2341, IMGUI_TABLE_SETUP_SCROLL_FREEZE);
-CLEO_RegisterOpcode(0x2342, IMGUI_TABLE_HEADERS_ROW);
-CLEO_RegisterOpcode(0x2343, IMGUI_TABLE_HEADER);
-CLEO_RegisterOpcode(0x2344, IMGUI_TABLE_GET_COLUMN_COUNT);
-CLEO_RegisterOpcode(0x2345, IMGUI_TABLE_GET_COLUMN_INDEX);
-CLEO_RegisterOpcode(0x2346, IMGUI_TABLE_GET_ROW_INDEX);
-CLEO_RegisterOpcode(0x2347, IMGUI_TABLE_GET_COLUMN_NAME);
-CLEO_RegisterOpcode(0x2348, IMGUI_TABLE_GET_COLUMN_FLAGS);
-CLEO_RegisterOpcode(0x2349, IMGUI_TABLE_SET_COLUMN_ENABLED);
-CLEO_RegisterOpcode(0x234A, IMGUI_TABLE_SET_BG_COLOR);
+    CLEO_RegisterOpcode(0x714B, IMGUI_LABEL_TEXT);
+    CLEO_RegisterOpcode(0x714C, IMGUI_BEGIN_TOOLTIP);
+    CLEO_RegisterOpcode(0x714D, IMGUI_END_TOOLTIP);
+    CLEO_RegisterOpcode(0x714E, IMGUI_BEGIN_MENU);
+    CLEO_RegisterOpcode(0x714F, IMGUI_END_MENU);
+    CLEO_RegisterOpcode(0x7150, IMGUI_MENU_ITEM_EX);
+    CLEO_RegisterOpcode(0x7152, IMGUI_BEGIN_LISTBOX);
+    CLEO_RegisterOpcode(0x7153, IMGUI_END_LISTBOX);
+    CLEO_RegisterOpcode(0x7154, IMGUI_LISTBOX);
+    CLEO_RegisterOpcode(0x7155, IMGUI_PLOT_LINES);
+    CLEO_RegisterOpcode(0x7156, IMGUI_PLOT_HISTOGRAM);
+    CLEO_RegisterOpcode(0x7157, IMGUI_GET_TIME);
+    CLEO_RegisterOpcode(0x7158, IMGUI_GET_FRAME_COUNT);
 
-CLEO_RegisterOpcode(0x234B, IMGUI_LABEL_TEXT);
-CLEO_RegisterOpcode(0x234C, IMGUI_BEGIN_TOOLTIP);
-CLEO_RegisterOpcode(0x234D, IMGUI_END_TOOLTIP);
-CLEO_RegisterOpcode(0x234E, IMGUI_BEGIN_MENU);
-CLEO_RegisterOpcode(0x234F, IMGUI_END_MENU);
-CLEO_RegisterOpcode(0x2350, IMGUI_MENU_ITEM_EX);
-CLEO_RegisterOpcode(0x2352, IMGUI_BEGIN_LISTBOX);
-CLEO_RegisterOpcode(0x2353, IMGUI_END_LISTBOX);
-CLEO_RegisterOpcode(0x2354, IMGUI_LISTBOX);
-CLEO_RegisterOpcode(0x2355, IMGUI_PLOT_LINES);
-CLEO_RegisterOpcode(0x2356, IMGUI_PLOT_HISTOGRAM);
-CLEO_RegisterOpcode(0x2357, IMGUI_GET_TIME);
-CLEO_RegisterOpcode(0x2358, IMGUI_GET_FRAME_COUNT);
+    CLEO_RegisterOpcode(0x7159, IMGUI_SET_IMAGE_UV);
+    CLEO_RegisterOpcode(0x715A, IMGUI_SET_IMAGE_BORDER_COLOR);
 
-CLEO_RegisterOpcode(0x2359, IMGUI_SET_IMAGE_UV);
-CLEO_RegisterOpcode(0x235A, IMGUI_SET_IMAGE_BORDER_COLOR);
-
+    CLEO_RegisterOpcode(0x715B, IMGUI_BEGIN_A);
+    CLEO_RegisterOpcode(0x715C, IMGUI_END);
+    CLEO_RegisterOpcode(0x715D, IMGUI_CHECKBOX);
+    CLEO_RegisterOpcode(0x715E, IMGUI_BUTTON);
+    CLEO_RegisterOpcode(0x715F, IMGUI_CALC_TEXT_HEIGHT);
+    CLEO_RegisterOpcode(0x7160, IMGUI_CALC_TEXT_WIDTH);
+    CLEO_RegisterOpcode(0x7161, IMGUI_SET_NEXT_WINDOW_POS);
+    CLEO_RegisterOpcode(0x7162, IMGUI_SET_WINDOW_POS);
+    CLEO_RegisterOpcode(0x7163, IMGUI_GET_FONT_SIZE);
+    CLEO_RegisterOpcode(0x7164, IMGUI_SET_NEXT_WINDOW_SIZE);
+    CLEO_RegisterOpcode(0x7165, IMGUI_SET_WINDOW_SIZE);
+    //CLEO_RegisterOpcode(0x7166, IMGUI_SHOW_DEMO_WINDOW);
+    //CLEO_RegisterOpcode(0x7167, IMGUI_SHOW_STYLE_EDITOR);
+    CLEO_RegisterOpcode(0x7168, IMGUI_TEXT);
+    CLEO_RegisterOpcode(0x7169, IMGUI_TEXT_WRAPPED);
+    CLEO_RegisterOpcode(0x716A, IMGUI_TEXT_DISABLED);
+    CLEO_RegisterOpcode(0x716B, IMGUI_TEXT_COLORED);
+    CLEO_RegisterOpcode(0x716C, IMGUI_COLUMNS);
+    CLEO_RegisterOpcode(0x716D, IMGUI_NEXT_COLUMN);
+    CLEO_RegisterOpcode(0x716E, IMGUI_SPACING);
+    CLEO_RegisterOpcode(0x716F, IMGUI_DUMMY);
+    CLEO_RegisterOpcode(0x7170, IMGUI_SAMELINE);
+    CLEO_RegisterOpcode(0x7171, IMGUI_VSLIDER_INT);
+    CLEO_RegisterOpcode(0x7172, IMGUI_VSLIDER_FLOAT);
 
     logger->Info("CLEO opcodes for ImGui registered.");
 }
