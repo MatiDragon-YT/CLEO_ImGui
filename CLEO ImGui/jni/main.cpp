@@ -6,6 +6,7 @@
 #include <functional>
 #include <filesystem>
 #include <fstream>
+#include <cstring>
 
 #include "main.h"
 #include "arial.h"
@@ -34,7 +35,7 @@ END_DEPLIST()
 #define MAX_STR_LEN 0xFF
 
 // ── Macros para reducir código repetitivo ─────────────────
-#define READ_STRING(v, s) char v[s]; cleoaddon->ReadString(handle, v, s)
+#define READ_STRING(v, s) READ_STRING_V2(v, s)
 #define READ_INT(__name) int __name = cleo->ReadParam(handle)->i
 #define READ_FLOAT(__name) float __name = cleo->ReadParam(handle)->f
 #define READ_INT_PTR(__name) int* __name = &cleo->GetPointerToScriptVar(handle)->i
@@ -43,6 +44,50 @@ END_DEPLIST()
 #define WRITE_FLOAT(val) cleo->GetPointerToScriptVar(handle)->f = val
 #define WRITE_STRING(val) cleoaddon->WriteString(handle, val);
 #define RET_COMPARE(ret) cleoaddon->UpdateCompareFlag(handle, ret);
+
+static void* g_theText = nullptr;
+static uint16_t* (*g_textGet)(void*, const char*) = nullptr;
+
+static bool IsShortStringParameter(uint8_t type)
+{
+    return type == SCRIPT_PARAM_STATIC_SHORT_STRING ||
+           type == SCRIPT_PARAM_GLOBAL_SHORT_STRING_VARIABLE ||
+           type == SCRIPT_PARAM_LOCAL_SHORT_STRING_VARIABLE ||
+           type == SCRIPT_PARAM_GLOBAL_SHORT_STRING_ARRAY ||
+           type == SCRIPT_PARAM_LOCAL_SHORT_STRING_ARRAY;
+}
+
+static void ReadStringV2(void* handle, char* buffer, size_t size)
+{
+    if (size == 0)
+        return;
+
+    uint8_t type = cleoaddon->Read1Byte_NoSkip(handle);
+    if (!IsShortStringParameter(type))
+    {
+        cleoaddon->ReadString(handle, buffer, size);
+        return;
+    }
+
+    char gxtKey[SHORT_STRING_SIZE + 1] = {};
+    cleoaddon->ReadString(handle, gxtKey, sizeof(gxtKey));
+
+    const char* text = nullptr;
+    if (g_theText && g_textGet)
+    {
+        uint16_t* gxtValue = g_textGet(g_theText, gxtKey);
+        if (gxtValue)
+            text = cleoaddon->GXTCharToAscii(gxtValue, 0);
+    }
+
+    if (!text)
+        text = gxtKey;
+
+    std::strncpy(buffer, text, size - 1);
+    buffer[size - 1] = '\0';
+}
+
+#define READ_STRING_V2(v, s) char v[s] = {}; ReadStringV2(handle, v, s)
 
 // ── Macros para widgets con/sin cola ──────────────────────
 #define QUEUE_PUSH(body) g_drawQueue.push_back([=]() body)
@@ -3557,6 +3602,8 @@ extern "C" void OnModPreLoad()
     if (!pGameLib) { logger->Error("Cannot find libGTASA.so"); return; }
     pGameHandle = aml->GetLibHandle("libGTASA.so");
 
+    SET_TO(g_theText, aml->GetSym(pGameHandle, "TheText"));
+    SET_TO(g_textGet, aml->GetSym(pGameHandle, "_ZN5CText3GetEPKc"));
     SET_TO(nearScreenZ, aml->GetSym(pGameHandle, "_ZN9CSprite2d11NearScreenZE"));
     SET_TO(recipNearClip, aml->GetSym(pGameHandle, "_ZN9CSprite2d13RecipNearClipE"));
     SET_TO(SetScissorRect, aml->GetSym(pGameHandle, "_ZN7CWidget10SetScissorER5CRect"));

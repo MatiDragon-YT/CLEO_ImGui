@@ -33,44 +33,6 @@ namespace fs = std::filesystem;
 #define CLEO_RegisterOpcode(x, h) cleo->RegisterOpcode(x, h); cleo->RegisterOpcodeFunction(#h, h)
 #define CLEO_Fn(h) void h (void *handle, uint32_t *ip, uint16_t opcode, const char *name)
 
-// https://github.com/gta-reversed/gta-reversed-modern/blob/1b37b015fbda7957ebbc36dbe8d5e4a90ebb6891/source/game_sa/Scripts/RunningScript.h#L17
-constexpr auto SHORT_STRING_SIZE = 8;
-constexpr auto LONG_STRING_SIZE = 16;
-enum eScriptParameterType : int8_t
-{
-    SCRIPT_PARAM_END_OF_ARGUMENTS, //< Special type used for vararg stuff
-
-    SCRIPT_PARAM_STATIC_INT_32BITS,
-    SCRIPT_PARAM_GLOBAL_NUMBER_VARIABLE, //< Global int32 variable
-    SCRIPT_PARAM_LOCAL_NUMBER_VARIABLE, //< Local int32 variable
-    SCRIPT_PARAM_STATIC_INT_8BITS,
-    SCRIPT_PARAM_STATIC_INT_16BITS,
-    SCRIPT_PARAM_STATIC_FLOAT,
-
-    // Types below are only available in GTA SA
-
-    // Number arrays
-    SCRIPT_PARAM_GLOBAL_NUMBER_ARRAY, //< Global array of numbers (always int32)
-    SCRIPT_PARAM_LOCAL_NUMBER_ARRAY, //< Local array of numbers (always int32)
-
-    SCRIPT_PARAM_STATIC_SHORT_STRING, //< Static 8 byte string
-
-    SCRIPT_PARAM_GLOBAL_SHORT_STRING_VARIABLE, //< Local 8 byte string
-    SCRIPT_PARAM_LOCAL_SHORT_STRING_VARIABLE, //< Local 8 byte string
-
-    SCRIPT_PARAM_GLOBAL_SHORT_STRING_ARRAY, //< Global 8 byte string array
-    SCRIPT_PARAM_LOCAL_SHORT_STRING_ARRAY,  //< Local 8 byte string array
-
-    SCRIPT_PARAM_STATIC_PASCAL_STRING, //< Pascal string is a sequence of characters with optional size specification. (So says Google)
-    SCRIPT_PARAM_STATIC_LONG_STRING,    //< 16 byte string
-
-    SCRIPT_PARAM_GLOBAL_LONG_STRING_VARIABLE, //< Global 16 byte string
-    SCRIPT_PARAM_LOCAL_LONG_STRING_VARIABLE, //< Local 16 byte string
-
-    SCRIPT_PARAM_GLOBAL_LONG_STRING_ARRAY, //< Global array of 16 byte strings
-    SCRIPT_PARAM_LOCAL_LONG_STRING_ARRAY, //< Local array of 16 byte strings
-};
-
 // CLEO Structs
 struct CLEO201Script
 {
