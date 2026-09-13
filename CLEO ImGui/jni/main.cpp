@@ -1635,6 +1635,7 @@ CLEO_Fn(IMGUI_SELECTABLE_B)
 CLEO_Fn(IMGUI_LOAD_IMAGE)
 {
     READ_STRING(path, 256);
+    logger->Info("IMGUI_LOAD_IMAGE: requested path = '%s'", path);
 
     int imageId = -1;
     if (path[0] != '\0') {
@@ -1643,6 +1644,16 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
         bool found = false;
 
         // Resolver prefijos virtuales
+        if (input.rfind("game:", 0) == 0) {
+            const char* dir = aml->GetAndroidDataPath();
+            fullPath = std::string(dir ? dir : "") + "/" + input.substr(5);
+            found = true;
+        }
+        else if (input.rfind("data:", 0) == 0) {
+            const char* dir = aml->GetDataPath();
+            fullPath = std::string(dir ? dir : "") + "/" + input.substr(5);
+            found = true;
+        }
         if (input.rfind("cleo:", 0) == 0) {
             const char* dir = cleo->GetCleoStorageDir();
             fullPath = std::string(dir ? dir : "") + "/" + input.substr(5);
@@ -1671,13 +1682,16 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
         // Si no se especificó prefijo, buscar en las carpetas
         if (!found) {
             std::vector<std::string> bases;
+            // Try the path as supplied first. This supports absolute paths and
+            // relative paths resolved by the game's current working directory.
+            bases.push_back("");
             if (cleo->GetCleoStorageDir()) bases.push_back(cleo->GetCleoStorageDir());
             if (aml->GetAndroidDataPath()) bases.push_back(aml->GetAndroidDataPath());
             if (aml->GetDataPath()) bases.push_back(aml->GetDataPath());
             if (cleo->GetCleoPluginLoadDir()) bases.push_back(cleo->GetCleoPluginLoadDir());
 
             for (const auto& base : bases) {
-                std::string candidate = base + "/" + input;
+                std::string candidate = base.empty() ? input : base + "/" + input;
                 std::ifstream testFile(candidate, std::ios::binary);
                 if (testFile.is_open()) {
                     testFile.close();
@@ -1706,6 +1720,10 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
             return;
         }
 
+       logger->Info("IMGUI_LOAD_IMAGE: loaders raster=%p image=%p png=%p",
+           reinterpret_cast<void*>(RwRasterRead),
+           reinterpret_cast<void*>(RwImageRead),
+           reinterpret_cast<void*>(RtPNGImageRead));
        RwRaster* raster = LoadImageRaster(fullPath.c_str());
 
        if (raster) {
