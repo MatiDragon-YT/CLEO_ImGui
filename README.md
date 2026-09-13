@@ -23,6 +23,8 @@ New order:
 
 The missing vertical sliders were added (7171-7172).
 
+Opcodes now support GXT keys. To use them, use single quotes (''); to insert text as before, use double quotes ("").
+
 ### ImGui v1.2.0
 
 Almost all the opcodes from CLEO ImGui (0F01-0F63) and CLEO ImGui Redux (2202-2250) were added.
