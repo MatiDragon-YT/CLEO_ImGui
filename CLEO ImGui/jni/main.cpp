@@ -1576,7 +1576,7 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
     READ_STRING(path, 256);
 
     int imageId = -1;
-    if (path[0] != '\0' && sautils != nullptr) {
+    if (path[0] != '\0') {
         std::string fullPath;
         std::string input = path;
         bool found = false;
@@ -1645,41 +1645,37 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
             return;
         }
 
-        void* texture = nullptr;
+       RwRaster* raster = nullptr;
+       const bool isPng = strstr(fullPath.c_str(), ".png") ||
+                          strstr(fullPath.c_str(), ".PNG");
 
-        // Intentar cargar con sautils según extensión
-        if (strstr(fullPath.c_str(), ".png") || strstr(fullPath.c_str(), ".PNG")) {
-            texture = sautils->LoadRwTextureFromPNG(fullPath.c_str());
-        } else if (strstr(fullPath.c_str(), ".bmp") || strstr(fullPath.c_str(), ".BMP")) {
-            texture = sautils->LoadRwTextureFromBMP(fullPath.c_str());
-        } else {
-            texture = sautils->LoadRwTextureFromBMP(fullPath.c_str());
-            if (!texture) texture = sautils->LoadRwTextureFromPNG(fullPath.c_str());
-        }
-        
-        // Intento 2: RenderWare directo (fallback)
-if (!texture) {
-    RwImage* image = RwImageRead(fullPath.c_str());
-    if (image) {
-        RwRaster* raster = RwRasterCreate(image->width, image->height, image->depth, 2);
-        if (raster) {
-            raster = RwRasterSetFromImage(raster, image);
-            if (raster) {
-                texture = (void*)raster;
-                logger->Info("IMGUI_LOAD_IMAGE: loaded via RwImageRead/RwRasterSetFromImage");
-            }
-        }
-        RwImageDestroy(image);
-    }
-}
+       // The RenderWare backend consumes a raster, not the RwTexture returned
+       // by SAUtils.
+       if (!isPng && RwRasterRead)
+           raster = RwRasterRead(fullPath.c_str());
 
-        if (texture) {
-            imageId = AddImage(texture);
-            g_imagePathToId[fullPath] = imageId;
-            logger->Info("IMGUI_LOAD_IMAGE: new image id = %d", imageId);
-        } else {
-            logger->Error("IMGUI_LOAD_IMAGE: sautils failed to load texture from %s", fullPath.c_str());
-        }
+       if (!raster && RtPNGImageRead && RwImageFindRasterFormat &&
+           RwRasterCreate && RwRasterSetFromImage && RwImageDestroy)
+       {
+           RwImage* image = RtPNGImageRead(fullPath.c_str());
+           if (image)
+           {
+               RwInt32 width, height, depth, flags;
+               RwImageFindRasterFormat(image, 4, &width, &height, &depth, &flags);
+               raster = RwRasterCreate(width, height, depth, flags);
+               if (raster)
+                   raster = RwRasterSetFromImage(raster, image);
+               RwImageDestroy(image);
+           }
+       }
+
+       if (raster) {
+           imageId = AddImage(raster);
+           g_imagePathToId[fullPath] = imageId;
+           logger->Info("IMGUI_LOAD_IMAGE: new image id = %d", imageId);
+       } else {
+           logger->Error("IMGUI_LOAD_IMAGE: failed to load raster from %s", fullPath.c_str());
+       }
     }
     WRITE_INT(imageId);   // devuelve -1 si no se cargó
 }
@@ -2318,6 +2314,8 @@ CLEO_Fn(IMGUI_FREE_IMAGE)
         // 1. Quitar la imagen del mapa principal
         auto it = g_images.find(imageId);
         if (it != g_images.end()) {
+            if (RwRasterDestroy)
+                RwRasterDestroy(static_cast<RwRaster*>(it->second));
             g_images.erase(it);
         }
 
