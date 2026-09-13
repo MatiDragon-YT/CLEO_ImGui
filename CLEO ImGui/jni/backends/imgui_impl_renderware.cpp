@@ -78,7 +78,7 @@ void ImGui_ImplRenderWare_RenderDrawData(ImDrawData* draw_data)
                   RwRenderStateSet(rwRENDERSTATEALPHATESTFUNCTIONREF, (void*)2);
                   RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)2);
                   RwRenderStateSet(rwRENDERSTATETEXTUREADDRESS, (void*)3);
-                  RwRenderStateSet(rwRENDERSTATETEXTURERASTER, (void*)pcmd->TextureId);
+                  RwRenderStateSet(rwRENDERSTATETEXTURERASTER, (void*)pcmd->GetTexID());
                   RwIm2DRenderIndexedPrimitive(rwPRIMTYPETRILIST, 
                       &g_pVB[vtx_offset], (RwInt32)cmd_list->VtxBuffer.Size,
                       (RwImVertexIndex*)idx_buffer, pcmd->ElemCount);
@@ -136,7 +136,7 @@ bool ImGui_ImplRenderWare_CreateDeviceObjects()
     g_FontRaster = RwRasterSetFromImage(g_FontRaster, font_img);
     RwImageDestroy(font_img);
 
-    io.Fonts->TexID = (ImTextureID*)g_FontRaster;
+    io.Fonts->TexID = (ImTextureID)g_FontRaster;
     return true;
 }
 

@@ -191,6 +191,67 @@ static void* GetImage(int id) {
     return it->second;
 }
 
+static RwRaster* CreateRasterFromImage(RwImage* image)
+{
+    if (!image || !RwImageFindRasterFormat || !RwRasterCreate ||
+        !RwRasterSetFromImage || !RwImageDestroy)
+        return nullptr;
+
+    RwInt32 width = 0;
+    RwInt32 height = 0;
+    RwInt32 depth = 0;
+    RwInt32 flags = 0;
+    if (!RwImageFindRasterFormat(image, 4, &width, &height, &depth, &flags) ||
+        width <= 0 || height <= 0)
+    {
+        RwImageDestroy(image);
+        return nullptr;
+    }
+
+    RwRaster* raster = RwRasterCreate(width, height, depth, flags);
+    if (!raster)
+    {
+        RwImageDestroy(image);
+        return nullptr;
+    }
+
+    RwRaster* uploadedRaster = RwRasterSetFromImage(raster, image);
+    RwImageDestroy(image);
+    if (!uploadedRaster)
+    {
+        if (RwRasterDestroy)
+            RwRasterDestroy(raster);
+        return nullptr;
+    }
+
+    return uploadedRaster;
+}
+
+static RwRaster* LoadImageRaster(const char* path)
+{
+    if (!path || !*path)
+        return nullptr;
+
+    // RwRasterRead handles RenderWare raster files. The image readers cover
+    // formats such as PNG that cannot be passed directly to RwRasterRead.
+    if (RwRasterRead)
+    {
+        if (RwRaster* raster = RwRasterRead(path))
+            return raster;
+    }
+
+    if (RwImageRead)
+    {
+        if (RwRaster* raster = CreateRasterFromImage(RwImageRead(path)))
+            return raster;
+    }
+
+    if (RtPNGImageRead)
+        return CreateRasterFromImage(RtPNGImageRead(path));
+
+    return nullptr;
+}
+
 // ── Sistema de teclado virtual (edición en vivo) ─────
 enum VirtualKeyboardType {
     VK_NONE = 0,
@@ -1645,29 +1706,7 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
             return;
         }
 
-       RwRaster* raster = nullptr;
-       const bool isPng = strstr(fullPath.c_str(), ".png") ||
-                          strstr(fullPath.c_str(), ".PNG");
-
-       // The RenderWare backend consumes a raster, not the RwTexture returned
-       // by SAUtils.
-       if (!isPng && RwRasterRead)
-           raster = RwRasterRead(fullPath.c_str());
-
-       if (!raster && RtPNGImageRead && RwImageFindRasterFormat &&
-           RwRasterCreate && RwRasterSetFromImage && RwImageDestroy)
-       {
-           RwImage* image = RtPNGImageRead(fullPath.c_str());
-           if (image)
-           {
-               RwInt32 width, height, depth, flags;
-               RwImageFindRasterFormat(image, 4, &width, &height, &depth, &flags);
-               raster = RwRasterCreate(width, height, depth, flags);
-               if (raster)
-                   raster = RwRasterSetFromImage(raster, image);
-               RwImageDestroy(image);
-           }
-       }
+       RwRaster* raster = LoadImageRaster(fullPath.c_str());
 
        if (raster) {
            imageId = AddImage(raster);
