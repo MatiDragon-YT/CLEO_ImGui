@@ -5,7 +5,6 @@
 #include <vector>
 #include <functional>
 #include <filesystem>
-#include <fstream>
 #include <cstring>
 
 #include "main.h"
@@ -169,7 +168,6 @@ ImFont* kbFont;
 
 // ── Imágenes para ImGui ──────────────────────────
 static std::map<int, void*> g_images;
-static std::map<int, RwTexture*> g_imageTextures;
 static int g_nextImageId = 1;
 static ImVec4 g_imageBgColor   = ImVec4(0.0f, 0.0f, 0.0f, 0.0f); // transparente por defecto
 static ImVec4 g_imageTintColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // blanco por defecto
@@ -194,9 +192,17 @@ static void* GetImage(int id) {
 
 static RwRaster* CreateRasterFromImage(RwImage* image)
 {
-    if (!image || !RwImageFindRasterFormat || !RwRasterCreate ||
-        !RwRasterSetFromImage || !RwImageDestroy)
+    if (!image)
         return nullptr;
+
+    if (!RwImageFindRasterFormat || !RwRasterCreate ||
+        !RwRasterSetFromImage || !RwImageDestroy)
+    {
+        logger->Error("IMGUI_LOAD_IMAGE: image loader functions are unavailable");
+        if (RwImageDestroy)
+            RwImageDestroy(image);
+        return nullptr;
+    }
 
     RwInt32 width = 0;
     RwInt32 height = 0;
@@ -233,39 +239,139 @@ static RwRaster* LoadImageRaster(const char* path)
     if (!path || !*path)
         return nullptr;
 
-    if (RwTextureRead)
-    {
-        if (RwTexture* texture = RwTextureRead(path, nullptr))
-        {
-            logger->Info("IMGUI_LOAD_IMAGE: RwTextureRead loaded %s (texture=%p raster=%p)",
-                path, static_cast<void*>(texture), static_cast<void*>(texture->raster));
-            if (texture->raster)
-            {
-                const int imageId = g_nextImageId;
-                g_imageTextures[imageId] = texture;
-                return texture->raster;
-            }
-        }
-    }
-
     // RwRasterRead handles RenderWare raster files. The image readers cover
     // formats such as PNG that cannot be passed directly to RwRasterRead.
     if (RwRasterRead)
     {
         if (RwRaster* raster = RwRasterRead(path))
+        {
+            logger->Info("IMGUI_LOAD_IMAGE: loaded with RwRasterRead");
             return raster;
+        }
     }
 
     if (RwImageRead)
     {
         if (RwRaster* raster = CreateRasterFromImage(RwImageRead(path)))
+        {
+            logger->Info("IMGUI_LOAD_IMAGE: loaded with RwImageRead");
             return raster;
+        }
     }
 
     if (RtPNGImageRead)
-        return CreateRasterFromImage(RtPNGImageRead(path));
+    {
+        if (RwRaster* raster = CreateRasterFromImage(RtPNGImageRead(path)))
+        {
+            logger->Info("IMGUI_LOAD_IMAGE: loaded with RtPNGImageRead");
+            return raster;
+        }
+    }
 
+    logger->Error("IMGUI_LOAD_IMAGE: all raster/image loaders failed for %s", path);
     return nullptr;
+}
+
+static std::string NormalizeImagePath(const std::string& path)
+{
+    std::string normalized = path;
+    for (char& character : normalized)
+    {
+        if (character == '\\')
+            character = '/';
+    }
+
+    std::error_code error;
+    std::filesystem::path canonical =
+        std::filesystem::weakly_canonical(std::filesystem::path(normalized), error);
+    return error ? normalized : canonical.string();
+}
+
+static bool IsRegularImageFile(const std::string& path)
+{
+    std::error_code error;
+    return std::filesystem::is_regular_file(
+        std::filesystem::path(path), error) && !error;
+}
+
+static std::string ResolveImagePath(void* handle, const char* path)
+{
+    if (!path || !*path)
+        return {};
+
+    std::string input = path;
+    for (char& character : input)
+    {
+        if (character == '\\')
+            character = '/';
+    }
+
+    struct ImagePathBase
+    {
+        const char* prefix;
+        const char* directory;
+    };
+
+    const char* gameDirectory = aml->GetAndroidDataPath();
+    const char* dataDirectory = aml->GetDataPath();
+    const char* cleoDirectory = cleo->GetCleoStorageDir();
+    const char* modulesDirectory = cleo->GetCleoPluginLoadDir();
+
+    const ImagePathBase prefixedBases[] = {
+        {"root:", gameDirectory},
+        {"game:", gameDirectory},
+        {"data:", dataDirectory},
+        {"userfiles:", dataDirectory},
+        {"cleo:", cleoDirectory},
+        {"modules:", modulesDirectory},
+    };
+
+    for (const ImagePathBase& base : prefixedBases)
+    {
+        if (input.rfind(base.prefix, 0) == 0)
+        {
+            if (!base.directory)
+                return {};
+
+            std::filesystem::path candidate(base.directory);
+            candidate /= input.substr(std::strlen(base.prefix));
+            return NormalizeImagePath(candidate.string());
+        }
+    }
+
+    if (input == "." || input.rfind("./", 0) == 0)
+    {
+        std::filesystem::path candidate =
+            cleoDirectory ? std::filesystem::path(cleoDirectory) : std::filesystem::path();
+        candidate /= input == "." ? "" : input.substr(2);
+        return NormalizeImagePath(candidate.string());
+    }
+
+    std::filesystem::path inputPath(input);
+    if (inputPath.is_absolute())
+        return NormalizeImagePath(input);
+
+    // Match CLEO's normal relative-file lookup before trying broader bases.
+    const char* relativeBases[] = {
+        cleoDirectory,
+        gameDirectory,
+        dataDirectory,
+        modulesDirectory,
+    };
+    for (const char* directory : relativeBases)
+    {
+        if (!directory)
+            continue;
+
+        std::filesystem::path candidate(directory);
+        candidate /= inputPath;
+        std::string resolved = NormalizeImagePath(candidate.string());
+        if (IsRegularImageFile(resolved))
+            return resolved;
+    }
+
+    // Keep the process working directory as a final compatibility fallback.
+    return NormalizeImagePath(input);
 }
 
 // ── Sistema de teclado virtual (edición en vivo) ─────
@@ -1647,7 +1753,7 @@ CLEO_Fn(IMGUI_SELECTABLE_B)
     });
 }
 
-// 0F40 / 2238: imgui_load_image (con búsqueda automática y std::ifstream)
+// 0F40 / 2238: imgui_load_image (con resolución compatible con CLEO)
 CLEO_Fn(IMGUI_LOAD_IMAGE)
 {
     READ_STRING(path, 256);
@@ -1655,70 +1761,8 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
 
     int imageId = -1;
     if (path[0] != '\0') {
-        std::string fullPath;
-        std::string input = path;
-        bool found = false;
-
-        // Resolver prefijos virtuales
-        if (input.rfind("game:", 0) == 0) {
-            const char* dir = aml->GetAndroidDataPath();
-            fullPath = std::string(dir ? dir : "") + "/" + input.substr(5);
-            found = true;
-        }
-        else if (input.rfind("data:", 0) == 0) {
-            const char* dir = aml->GetDataPath();
-            fullPath = std::string(dir ? dir : "") + "/" + input.substr(5);
-            found = true;
-        }
-        if (input.rfind("cleo:", 0) == 0) {
-            const char* dir = cleo->GetCleoStorageDir();
-            fullPath = std::string(dir ? dir : "") + "/" + input.substr(5);
-            found = true;
-        }
-        else if (input.rfind("root:", 0) == 0) {
-            const char* dir = aml->GetAndroidDataPath();
-            fullPath = std::string(dir ? dir : "") + "/" + input.substr(5);
-            found = true;
-        }
-        else if (input.rfind("userfiles:", 0) == 0) {
-            const char* dir = aml->GetDataPath();
-            fullPath = std::string(dir ? dir : "") + "/" + input.substr(10);
-            found = true;
-        }
-        else if (input.rfind("modules:", 0) == 0) {
-            const char* dir = cleo->GetCleoPluginLoadDir();
-            fullPath = std::string(dir ? dir : "") + "/" + input.substr(8);
-            found = true;
-        }
-        else if (input[0] == '/') {
-            fullPath = input;
-            found = true;
-        }
-
-        // Si no se especificó prefijo, buscar en las carpetas
-        if (!found) {
-            std::vector<std::string> bases;
-            // Try the path as supplied first. This supports absolute paths and
-            // relative paths resolved by the game's current working directory.
-            bases.push_back("");
-            if (cleo->GetCleoStorageDir()) bases.push_back(cleo->GetCleoStorageDir());
-            if (aml->GetAndroidDataPath()) bases.push_back(aml->GetAndroidDataPath());
-            if (aml->GetDataPath()) bases.push_back(aml->GetDataPath());
-            if (cleo->GetCleoPluginLoadDir()) bases.push_back(cleo->GetCleoPluginLoadDir());
-
-            for (const auto& base : bases) {
-                std::string candidate = base.empty() ? input : base + "/" + input;
-                std::ifstream testFile(candidate, std::ios::binary);
-                if (testFile.is_open()) {
-                    testFile.close();
-                    fullPath = candidate;
-                    found = true;
-                    break;
-                } else {
-                    logger->Info("IMGUI_LOAD_IMAGE: not found at %s", candidate.c_str());
-                }
-            }
-        }
+        std::string fullPath = ResolveImagePath(handle, path);
+        bool found = IsRegularImageFile(fullPath);
 
         if (!found || fullPath.empty()) {
             logger->Error("IMGUI_LOAD_IMAGE: path not found: %s", path);
@@ -1736,8 +1780,7 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
             return;
         }
 
-       logger->Info("IMGUI_LOAD_IMAGE: loaders texture=%p raster=%p image=%p png=%p",
-           reinterpret_cast<void*>(RwTextureRead),
+       logger->Info("IMGUI_LOAD_IMAGE: loaders raster=%p image=%p png=%p",
            reinterpret_cast<void*>(RwRasterRead),
            reinterpret_cast<void*>(RwImageRead),
            reinterpret_cast<void*>(RtPNGImageRead));
@@ -2388,11 +2431,8 @@ CLEO_Fn(IMGUI_FREE_IMAGE)
         // 1. Quitar la imagen del mapa principal
         auto it = g_images.find(imageId);
         if (it != g_images.end()) {
-            if (g_imageTextures.find(imageId) != g_imageTextures.end()) {
-                g_imageTextures.erase(imageId);
-            } else if (RwRasterDestroy) {
+            if (RwRasterDestroy)
                 RwRasterDestroy(static_cast<RwRaster*>(it->second));
-            }
             g_images.erase(it);
         }
 

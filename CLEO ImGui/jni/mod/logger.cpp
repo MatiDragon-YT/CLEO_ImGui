@@ -72,7 +72,7 @@ void Logger::PrintTag(eLogPrio prio, const char* szTag, const char* szMessage, .
     va_start(args, szMessage);
     vsnprintf(buffer, sizeof(buffer), szMessage, args);
     if(m_fnLogCallback) m_fnLogCallback(prio, buffer);
-    __android_log_write((android_LogPriority)prio, m_szTag, buffer);
+    __android_log_write((android_LogPriority)prio, szTag ? szTag : m_szTag, buffer);
     va_end(args);
 #endif
 }
@@ -85,7 +85,7 @@ void Logger::PrintTagV(eLogPrio prio, const char* szTag, const char* szMessage, 
     char buffer[TMPBUF_SIZE];
     vsnprintf(buffer, sizeof(buffer), szMessage, args);
     if(m_fnLogCallback) m_fnLogCallback(prio, buffer);
-    __android_log_write((android_LogPriority)prio, m_szTag, buffer);
+    __android_log_write((android_LogPriority)prio, szTag ? szTag : m_szTag, buffer);
 #endif
 }
 
