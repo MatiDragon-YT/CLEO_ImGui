@@ -168,6 +168,7 @@ ImFont* kbFont;
 
 // ── Imágenes para ImGui ──────────────────────────
 static std::map<int, void*> g_images;
+static std::map<int, RwTexture*> g_imageTextures;
 static int g_nextImageId = 1;
 static ImVec4 g_imageBgColor   = ImVec4(0.0f, 0.0f, 0.0f, 0.0f); // transparente por defecto
 static ImVec4 g_imageTintColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // blanco por defecto
@@ -239,6 +240,23 @@ static RwRaster* LoadImageRaster(const char* path)
     if (!path || !*path)
         return nullptr;
 
+    // Let RenderWare create the texture first. This is the same path used by
+    // GTA SA for PNG/TGA files and produces a raster ready for the ImGui
+    // RenderWare backend.
+    if (RwTextureRead)
+    {
+        if (RwTexture* texture = RwTextureRead(path, nullptr))
+        {
+            if (texture->raster)
+            {
+                logger->Info("IMGUI_LOAD_IMAGE: loaded with RwTextureRead");
+                return texture->raster;
+            }
+
+            RwTextureDestroy(texture);
+        }
+    }
+
     // RwRasterRead handles RenderWare raster files. The image readers cover
     // formats such as PNG that cannot be passed directly to RwRasterRead.
     if (RwRasterRead)
@@ -298,6 +316,13 @@ static std::string ResolveImagePath(void* handle, const char* path)
 {
     if (!path || !*path)
         return {};
+
+    if (cleoaddon && cleoaddon->ResolvePath)
+    {
+        std::string resolved = cleoaddon->ResolvePath(handle, path, nullptr);
+        if (!resolved.empty())
+            return NormalizeImagePath(resolved);
+    }
 
     std::string input = path;
     for (char& character : input)
@@ -1762,10 +1787,9 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
     int imageId = -1;
     if (path[0] != '\0') {
         std::string fullPath = ResolveImagePath(handle, path);
-        bool found = IsRegularImageFile(fullPath);
 
-        if (!found || fullPath.empty()) {
-            logger->Error("IMGUI_LOAD_IMAGE: path not found: %s", path);
+        if (fullPath.empty()) {
+            logger->Error("IMGUI_LOAD_IMAGE: unable to resolve path: %s", path);
             WRITE_INT(imageId);
             return;
         }
@@ -1784,13 +1808,26 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
            reinterpret_cast<void*>(RwRasterRead),
            reinterpret_cast<void*>(RwImageRead),
            reinterpret_cast<void*>(RtPNGImageRead));
-       RwRaster* raster = LoadImageRaster(fullPath.c_str());
+       RwTexture* texture = nullptr;
+       RwRaster* raster = nullptr;
+       if (RwTextureRead)
+       {
+           texture = RwTextureRead(fullPath.c_str(), nullptr);
+           if (texture)
+               raster = texture->raster;
+       }
+       if (!raster)
+           raster = LoadImageRaster(fullPath.c_str());
 
        if (raster) {
            imageId = AddImage(raster);
+           if (texture)
+               g_imageTextures[imageId] = texture;
            g_imagePathToId[fullPath] = imageId;
            logger->Info("IMGUI_LOAD_IMAGE: new image id = %d", imageId);
        } else {
+           if (texture)
+               RwTextureDestroy(texture);
            logger->Error("IMGUI_LOAD_IMAGE: failed to load raster from %s", fullPath.c_str());
        }
     }
@@ -2431,8 +2468,14 @@ CLEO_Fn(IMGUI_FREE_IMAGE)
         // 1. Quitar la imagen del mapa principal
         auto it = g_images.find(imageId);
         if (it != g_images.end()) {
-            if (RwRasterDestroy)
+            auto textureIt = g_imageTextures.find(imageId);
+            if (textureIt != g_imageTextures.end()) {
+                if (RwTextureDestroy)
+                    RwTextureDestroy(textureIt->second);
+                g_imageTextures.erase(textureIt);
+            } else if (RwRasterDestroy) {
                 RwRasterDestroy(static_cast<RwRaster*>(it->second));
+            }
             g_images.erase(it);
         }
 
