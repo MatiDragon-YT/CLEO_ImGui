@@ -169,6 +169,7 @@ ImFont* kbFont;
 
 // ── Imágenes para ImGui ──────────────────────────
 static std::map<int, void*> g_images;
+static std::map<int, RwTexture*> g_imageTextures;
 static int g_nextImageId = 1;
 static ImVec4 g_imageBgColor   = ImVec4(0.0f, 0.0f, 0.0f, 0.0f); // transparente por defecto
 static ImVec4 g_imageTintColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // blanco por defecto
@@ -231,6 +232,21 @@ static RwRaster* LoadImageRaster(const char* path)
 {
     if (!path || !*path)
         return nullptr;
+
+    if (RwTextureRead)
+    {
+        if (RwTexture* texture = RwTextureRead(path, nullptr))
+        {
+            logger->Info("IMGUI_LOAD_IMAGE: RwTextureRead loaded %s (texture=%p raster=%p)",
+                path, static_cast<void*>(texture), static_cast<void*>(texture->raster));
+            if (texture->raster)
+            {
+                const int imageId = g_nextImageId;
+                g_imageTextures[imageId] = texture;
+                return texture->raster;
+            }
+        }
+    }
 
     // RwRasterRead handles RenderWare raster files. The image readers cover
     // formats such as PNG that cannot be passed directly to RwRasterRead.
@@ -1720,7 +1736,8 @@ CLEO_Fn(IMGUI_LOAD_IMAGE)
             return;
         }
 
-       logger->Info("IMGUI_LOAD_IMAGE: loaders raster=%p image=%p png=%p",
+       logger->Info("IMGUI_LOAD_IMAGE: loaders texture=%p raster=%p image=%p png=%p",
+           reinterpret_cast<void*>(RwTextureRead),
            reinterpret_cast<void*>(RwRasterRead),
            reinterpret_cast<void*>(RwImageRead),
            reinterpret_cast<void*>(RtPNGImageRead));
@@ -2371,8 +2388,11 @@ CLEO_Fn(IMGUI_FREE_IMAGE)
         // 1. Quitar la imagen del mapa principal
         auto it = g_images.find(imageId);
         if (it != g_images.end()) {
-            if (RwRasterDestroy)
+            if (g_imageTextures.find(imageId) != g_imageTextures.end()) {
+                g_imageTextures.erase(imageId);
+            } else if (RwRasterDestroy) {
                 RwRasterDestroy(static_cast<RwRaster*>(it->second));
+            }
             g_images.erase(it);
         }
 

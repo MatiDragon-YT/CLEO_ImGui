@@ -2,6 +2,7 @@
 
 #include "rwlpcore.h"
 #include "rwcore.h"
+#include <aml-psdk/renderware/RwTexture.h>
 
 typedef struct RsGlobalType RsGlobalType;
 struct RsGlobalType
